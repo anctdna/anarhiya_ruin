@@ -79,3 +79,5 @@ input[type="text"], input[type="number"], textarea, select{
 .pending-list{display:flex; flex-direction:column; gap:10px}
 .pending-card{border:1px solid var(--border); border-radius:10px; background:var(--panel); padding:10px}
 .pending-card h4{margin:0 0 6px 0}
+/* всегда выше карты/контролов */
+.modal-overlay{ z-index: 10000; }
