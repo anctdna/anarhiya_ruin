@@ -1,0 +1,30 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() {
+      return isSignedIn()
+        && exists(/databases/(default)/documents/config/admins)
+        && get(/databases/(default)/documents/config/admins).data.uids.hasAny([request.auth.uid]);
+    }
+    function isOwnerOfPlace(placeId) {
+      return isSignedIn()
+        && exists(/databases/(default)/documents/places/$(placeId))
+        && get(/databases/(default)/documents/places/$(placeId)).data.createdBy == request.auth.uid;
+    }
+
+    // Фото храним под places/{placeId}/filename
+    match /places/{placeId}/{allPaths=**} {
+      // Читать — если объект одобрен, либо владелец, либо админ
+      allow read: if exists(/databases/(default)/documents/places/$(placeId))
+                  && (get(/databases/(default)/documents/places/$(placeId)).data.status == 'approved'
+                      || isOwnerOfPlace(placeId)
+                      || isAdmin());
+
+      // Писать/удалять — владелец или админ
+      allow write: if isOwnerOfPlace(placeId) || isAdmin();
+      allow delete: if isOwnerOfPlace(placeId) || isAdmin();
+    }
+  }
+}
