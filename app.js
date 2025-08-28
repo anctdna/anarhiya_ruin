@@ -52,9 +52,13 @@ let isAdmin = false;
 let unsubApproved = null;
 let unsubMine = null;
 let unsubFavorites = null;
+let clearRouteControl; // кнопка сброса маршрута
 
 const markersMap = new Map(); // placeId -> marker
 const favoritesSet = new Set();
+const favoritesOsmSet = new Set();
+let unsubFavoritesOSM = null;
+const osmMarkersMap = new Map(); // 'type-id' -> marker
 
 let map, routingControl, placesLayer, osmLayer, tempAddMarker = null;
 
@@ -113,6 +117,33 @@ function initMap() {
     return control;
   };
   L.control.locate().addTo(map);
+clearRouteControl = L.control({position:'topleft'});
+clearRouteControl.onAdd = function() {
+  const btn = L.DomUtil.create('a', 'leaflet-bar');
+  btn.href = '#';
+  btn.title = 'Сбросить маршрут';
+  btn.innerHTML = '✖';
+  btn.style.padding = '6px 10px';
+  btn.style.display = 'none'; // по умолчанию скрыта
+  L.DomEvent.on(btn, 'click', (e) => { e.preventDefault(); clearRoute(); });
+  this._btn = btn;
+  return btn;
+};
+clearRouteControl.addTo(map);
+
+function updateClearRouteBtn() {
+  if (clearRouteControl && clearRouteControl._btn) {
+    clearRouteControl._btn.style.display = routingControl ? 'block' : 'none';
+  }
+}
+
+function clearRoute() {
+  if (routingControl) {
+    map.removeControl(routingControl);
+    routingControl = null;
+  }
+  updateClearRouteBtn();
+}
 
   // OSM toggle handling
   toggleOSM.addEventListener('change', () => {
@@ -172,6 +203,7 @@ function renderPlaceItem(place) {
   });
   el.querySelector('[data-action="route"]').addEventListener('click', () => {
     startRoutingTo([place.lat, place.lng]);
+    updateClearRouteBtn();
   });
   el.querySelector('[data-action="favorite"]').addEventListener('click', () => toggleFavorite(place.id));
   const delBtn = el.querySelector('[data-action="delete"]');
@@ -236,6 +268,23 @@ function applyFilters() {
   markersMap.forEach(marker => applyFiltersToMarker(marker));
 }
 
+function applyFiltersOSM() {
+  const queryText = (searchInput.value || '').toLowerCase();
+  osmMarkersMap.forEach((marker, osmId) => {
+    const d = marker._osmData; // { id, name, lat, lng, type, tags }
+    const matchesSearch = !queryText || (d.name || '').toLowerCase().includes(queryText);
+    const matchesFav = !onlyFavorites.checked || favoritesOsmSet.has(osmId);
+    const visible = matchesSearch && matchesFav;
+
+    if (visible) {
+      if (!osmLayer.hasLayer(marker)) marker.addTo(osmLayer);
+      marker.getElement()?.classList.remove('hidden');
+    } else {
+      marker.remove();
+    }
+  });
+}
+
 function applyFiltersToMarker(marker) {
   const p = marker._placeData;
   if (!p) return;
@@ -262,6 +311,27 @@ async function toggleFavorite(placeId) {
   }
 }
 
+async function toggleFavoriteOSM(osmId, data) {
+  if (!currentUser) {
+    alert('Войдите, чтобы использовать избранное');
+    return;
+  }
+  const favRef = doc(db, 'users', currentUser.uid, 'favorites_osm', osmId);
+  if (favoritesOsmSet.has(osmId)) {
+    await deleteDoc(favRef);
+  } else {
+    await setDoc(favRef, {
+      osmId,
+      type: data.type,     // 'node' | 'way'
+      name: data.name || 'OSM объект',
+      lat: data.lat,
+      lng: data.lng,
+      tags: data.tags || {},
+      addedAt: serverTimestamp()
+    });
+  }
+}
+
 function subscribeFavorites() {
   if (!currentUser) return;
   const favCol = collection(db, 'users', currentUser.uid, 'favorites');
@@ -271,6 +341,17 @@ function subscribeFavorites() {
     snap.forEach(d => favoritesSet.add(d.id));
     // refresh stars/popup and list
     applyFilters();
+  });
+}
+
+function subscribeFavoritesOSM() {
+  if (!currentUser) return;
+  const favCol = collection(db, 'users', currentUser.uid, 'favorites_osm');
+  if (unsubFavoritesOSM) unsubFavoritesOSM();
+  unsubFavoritesOSM = onSnapshot(favCol, (snap) => {
+    favoritesOsmSet.clear();
+    snap.forEach(d => favoritesOsmSet.add(d.id)); // id вида "node-123" или "way-456"
+    applyFiltersOSM();
   });
 }
 
@@ -306,6 +387,7 @@ onAuthStateChanged(auth, async (user) => {
     }
     subscribeData();
     subscribeFavorites();
+    subscribeFavoritesOSM();
   } else {
     loginBtn.classList.remove('hidden');
     logoutBtn.classList.add('hidden');
@@ -315,7 +397,11 @@ onAuthStateChanged(auth, async (user) => {
     subscribeData();
     if (unsubFavorites) unsubFavorites();
     favoritesSet.clear();
+    if (unsubFavoritesOSM) unsubFavoritesOSM();
+    favoritesOsmSet.clear();
+    applyFiltersOSM();
     applyFilters();
+    applyFiltersOSM();
   }
 });
 
@@ -341,6 +427,7 @@ function subscribeData() {
       }
     });
     applyFilters();
+    applyFiltersOSM();
   });
 
   if (currentUser) {
@@ -360,6 +447,7 @@ function subscribeData() {
         }
       });
       applyFilters();
+      applyFiltersOSM();
     });
   }
 }
@@ -511,22 +599,50 @@ async function fetchOSMByView() {
       body: new URLSearchParams({ data: query })
     });
     const data = await res.json();
+
     osmLayer.clearLayers();
+    osmMarkersMap.clear();
+
     (data.elements || []).forEach(el => {
+      const type = el.type;            // 'node' | 'way'
+      const id = el.id;
+      const osmId = `${type}-${id}`;
+
       const lat = el.lat || el.center?.lat;
-      const lon = el.lon || el.center?.lon;
-      if (!lat || !lon) return;
+      const lng = el.lon || el.center?.lon;
+      if (!lat || !lng) return;
+
       const name = el.tags?.name || el.tags?.["name:ru"] || 'OSM: объект без имени';
-      const tags = Object.entries(el.tags || {}).map(([k,v])=>`${k}=${v}`).slice(0,12).join('<br/>');
-      const m = L.marker([lat, lon], { icon: makeDivIcon('#4ea0ff') })
-        .bindPopup(`<b>${name}</b><br/><small>из OSM/Overpass</small><br/><div style="max-width:240px">${tags}</div>
-        <div style="margin-top:6px"><button class="osm-route">Маршрут</button></div>`)
+      const tags = el.tags || {};
+
+      const favTxt = favoritesOsmSet.has(osmId) ? '★ Убрать из избранного' : '☆ В избранное';
+      const tagsHtml = Object.entries(tags).map(([k,v])=>`${k}=${v}`).slice(0,12).join('<br/>');
+
+      const marker = L.marker([lat, lng], { icon: makeDivIcon('#4ea0ff') })
+        .bindPopup(`
+          <b>${name}</b><br/>
+          <small>из OSM/Overpass</small><br/>
+          <div style="max-width:240px">${tagsHtml}</div>
+          <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+            <button class="osm-route">Маршрут</button>
+            <button class="osm-fav">${favTxt}</button>
+          </div>
+        `)
         .addTo(osmLayer);
-      m.on('popupopen', () => {
-        const node = m.getPopup().getElement();
-        node.querySelector('.osm-route').addEventListener('click', ()=> startRoutingTo([lat, lon]));
+
+      marker._osmData = { id: osmId, name, lat, lng, type, tags };
+      osmMarkersMap.set(osmId, marker);
+
+      marker.on('popupopen', () => {
+        const node = marker.getPopup().getElement();
+        node.querySelector('.osm-route').addEventListener('click', ()=> startRoutingTo([lat, lng]));
+        node.querySelector('.osm-fav').addEventListener('click', () => {
+          toggleFavoriteOSM(osmId, { name, lat, lng, type, tags });
+        });
       });
     });
+
+    applyFiltersOSM();
   } catch (e) {
     console.warn('Overpass error', e);
   }
