@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Abandoned Map — карта заброшенных объектов</title>
+
+  <!-- Leaflet -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+    defer
+  ></script>
+
+  <!-- Leaflet Routing Machine -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css"
+  />
+  <script
+    src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"
+    defer
+  ></script>
+
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+<header class="app-header">
+  <div class="brand">
+    <span>🏚️ Abandoned Map</span>
+  </div>
+  <nav class="nav-actions">
+    <a href="./admin.html" id="adminLink" class="hidden">Модерация</a>
+    <button id="loginBtn">Войти</button>
+    <button id="logoutBtn" class="hidden">Выйти</button>
+    <div id="userInfo" class="user-info hidden">
+      <img id="userAvatar" alt="user" />
+      <div>
+        <div id="userName"></div>
+        <div class="uid-line">UID: <span id="userUid"></span></div>
+      </div>
+    </div>
+  </nav>
+</header>
+
+<main class="layout">
+  <aside class="sidebar">
+    <section class="panel">
+      <button id="addPlaceBtn" class="primary">+ Добавить объект</button>
+
+      <div class="divider"></div>
+
+      <div class="filter-block">
+        <label><input type="checkbox" id="toggleOSM"> Показывать объекты из OSM (Overpass)</label>
+        <small>Осторожно: открытые источники могут содержать неточности; загрузка по области карты.</small>
+      </div>
+
+      <div class="filter-block">
+        <label>Доступность:</label>
+        <select id="filterAccess">
+          <option value="">Все</option>
+          <option value="open">Открыто</option>
+          <option value="partial">Частично</option>
+          <option value="closed">Закрыто</option>
+        </select>
+      </div>
+
+      <div class="filter-block">
+        <label>Охрана:</label>
+        <select id="filterSecurity">
+          <option value="">Любая</option>
+          <option value="none">Нет</option>
+          <option value="low">Низкая</option>
+          <option value="medium">Средняя</option>
+          <option value="high">Высокая</option>
+        </select>
+      </div>
+
+      <div class="filter-block">
+        <label><input type="checkbox" id="onlyFavorites"> Только избранное</label>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="search-block">
+        <input type="text" id="searchInput" placeholder="Поиск по названию/описанию..." />
+      </div>
+
+      <div id="placesList" class="places-list"></div>
+    </section>
+
+    <section class="panel">
+      <h3>Памятка</h3>
+      <ul class="note">
+        <li>Соблюдайте закон и правила безопасности.</li>
+        <li>Не нарушайте частную собственность.</li>
+        <li>Маршруты — экспериментальная функция (OSRM demo).</li>
+      </ul>
+    </section>
+  </aside>
+
+  <section class="map-section">
+    <div id="map"></div>
+  </section>
+</main>
+
+<!-- Модалка добавления объекта -->
+<div class="modal-overlay hidden" id="modalAdd">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Добавить объект</h3>
+      <button class="icon-btn" id="closeModalAdd">✖</button>
+    </div>
+    <div class="modal-body">
+      <form id="addPlaceForm">
+        <label>Название
+          <input type="text" id="placeName" required maxlength="120" />
+        </label>
+
+        <label>Описание
+          <textarea id="placeDescription" rows="3" maxlength="2000"></textarea>
+        </label>
+
+        <div class="row">
+          <label>Охрана
+            <select id="placeSecurity">
+              <option value="none">Нет</option>
+              <option value="low">Низкая</option>
+              <option value="medium">Средняя</option>
+              <option value="high">Высокая</option>
+            </select>
+          </label>
+          <label>Доступность
+            <select id="placeAccess">
+              <option value="open">Открыто</option>
+              <option value="partial">Частично</option>
+              <option value="closed">Закрыто</option>
+            </select>
+          </label>
+        </div>
+
+        <label>Полезные предметы (через запятую)
+          <input type="text" id="placeLoot" placeholder="например: металл, кабель, инструменты" />
+        </label>
+
+        <div class="row">
+          <label>Широта
+            <input type="number" id="placeLat" step="any" required />
+          </label>
+          <label>Долгота
+            <input type="number" id="placeLng" step="any" required />
+          </label>
+        </div>
+        <small>Подсказка: кликните по карте — координаты подставятся автоматически.</small>
+
+        <label>Фотографии (необязательно)
+          <input type="file" id="placePhotos" accept="image/*" multiple />
+        </label>
+
+        <div class="form-actions">
+          <button type="submit" class="primary">Отправить на модерацию</button>
+          <button type="button" id="cancelAdd">Отмена</button>
+        </div>
+      </form>
+      <div id="addStatus" class="status"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
