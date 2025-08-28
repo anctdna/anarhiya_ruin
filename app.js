@@ -6,7 +6,7 @@ import {
   getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, collection, doc, addDoc, setDoc, getDoc, getDocs,
+  getFirestore, collection, doc, addDoc, setDoc, getDoc,
   query, where, onSnapshot, updateDoc, deleteDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
@@ -52,15 +52,30 @@ let isAdmin = false;
 let unsubApproved = null;
 let unsubMine = null;
 let unsubFavorites = null;
+let unsubFavoritesOSM = null;
+
 let clearRouteControl; // кнопка сброса маршрута
 
 const markersMap = new Map(); // placeId -> marker
 const favoritesSet = new Set();
 const favoritesOsmSet = new Set();
-let unsubFavoritesOSM = null;
 const osmMarkersMap = new Map(); // 'type-id' -> marker
 
 let map, routingControl, placesLayer, osmLayer, tempAddMarker = null;
+
+// Helpers: route clear/show button
+function updateClearRouteBtn() {
+  if (clearRouteControl && clearRouteControl._btn) {
+    clearRouteControl._btn.style.display = routingControl ? 'block' : 'none';
+  }
+}
+function clearRoute() {
+  if (routingControl) {
+    map.removeControl(routingControl);
+    routingControl = null;
+  }
+  updateClearRouteBtn();
+}
 
 // Initialize map
 function initMap() {
@@ -110,53 +125,44 @@ function initMap() {
           const latlng = [pos.coords.latitude, pos.coords.longitude];
           map.setView(latlng, 14);
           L.circleMarker(latlng, {radius:6, color:'#00c389'}).addTo(map);
-        }, err => alert('Не удалось получить геолокацию'));
+        }, () => alert('Не удалось получить геолокацию'));
       });
       return btn;
     };
     return control;
   };
   L.control.locate().addTo(map);
-clearRouteControl = L.control({position:'topleft'});
-clearRouteControl.onAdd = function() {
-  const btn = L.DomUtil.create('a', 'leaflet-bar');
-  btn.href = '#';
-  btn.title = 'Сбросить маршрут';
-  btn.innerHTML = '✖';
-  btn.style.padding = '6px 10px';
-  btn.style.display = 'none'; // по умолчанию скрыта
-  L.DomEvent.on(btn, 'click', (e) => { e.preventDefault(); clearRoute(); });
-  this._btn = btn;
-  return btn;
-};
-clearRouteControl.addTo(map);
 
-function updateClearRouteBtn() {
-  if (clearRouteControl && clearRouteControl._btn) {
-    clearRouteControl._btn.style.display = routingControl ? 'block' : 'none';
-  }
-}
-
-function clearRoute() {
-  if (routingControl) {
-    map.removeControl(routingControl);
-    routingControl = null;
-  }
-  updateClearRouteBtn();
-}
+  // Clear route control
+  clearRouteControl = L.control({position:'topleft'});
+  clearRouteControl.onAdd = function() {
+    const btn = L.DomUtil.create('a', 'leaflet-bar');
+    btn.href = '#';
+    btn.title = 'Сбросить маршрут';
+    btn.innerHTML = '✖';
+    btn.style.padding = '6px 10px';
+    btn.style.display = 'none'; // по умолчанию скрыта
+    L.DomEvent.on(btn, 'click', (e) => { e.preventDefault(); clearRoute(); });
+    this._btn = btn;
+    return btn;
+  };
+  clearRouteControl.addTo(map);
 
   // OSM toggle handling
-  toggleOSM.addEventListener('change', () => {
-    if (toggleOSM.checked) {
-      map.addLayer(osmLayer);
-      fetchOSMByView();
-    } else {
-      map.removeLayer(osmLayer);
-      osmLayer.clearLayers();
-    }
-  });
+  if (toggleOSM) {
+    toggleOSM.addEventListener('change', () => {
+      if (toggleOSM.checked) {
+        map.addLayer(osmLayer);
+        fetchOSMByView();
+      } else {
+        map.removeLayer(osmLayer);
+        osmLayer.clearLayers();
+        osmMarkersMap.clear();
+      }
+    });
+  }
   map.on('moveend', () => {
-    if (toggleOSM.checked) throttleFetchOSM();
+    if (toggleOSM?.checked) throttleFetchOSM();
   });
 }
 
@@ -203,7 +209,6 @@ function renderPlaceItem(place) {
   });
   el.querySelector('[data-action="route"]').addEventListener('click', () => {
     startRoutingTo([place.lat, place.lng]);
-    updateClearRouteBtn();
   });
   el.querySelector('[data-action="favorite"]').addEventListener('click', () => toggleFavorite(place.id));
   const delBtn = el.querySelector('[data-action="delete"]');
@@ -260,7 +265,9 @@ function applyFilters() {
   // list
   placesList.innerHTML = '';
   const allPlaces = Array.from(markersMap.values()).map(m => m._placeData);
-  const filtered = allPlaces.filter(p => p && placeMatchesFilters(p)).sort((a,b)=> (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+  const filtered = allPlaces
+    .filter(p => p && placeMatchesFilters(p))
+    .sort((a,b)=> (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
   for (const p of filtered) {
     placesList.appendChild(renderPlaceItem(p));
   }
@@ -280,7 +287,7 @@ function applyFiltersOSM() {
       if (!osmLayer.hasLayer(marker)) marker.addTo(osmLayer);
       marker.getElement()?.classList.remove('hidden');
     } else {
-      marker.remove();
+      osmLayer.removeLayer(marker);
     }
   });
 }
@@ -293,7 +300,7 @@ function applyFiltersToMarker(marker) {
     if (!placesLayer.hasLayer(marker)) marker.addTo(placesLayer);
     marker.getElement()?.classList.remove('hidden');
   } else {
-    marker.remove();
+    placesLayer.removeLayer(marker);
   }
 }
 
@@ -339,7 +346,7 @@ function subscribeFavorites() {
   unsubFavorites = onSnapshot(favCol, (snap) => {
     favoritesSet.clear();
     snap.forEach(d => favoritesSet.add(d.id));
-    // refresh stars/popup and list
+    // refresh list and markers
     applyFilters();
   });
 }
@@ -394,12 +401,16 @@ onAuthStateChanged(auth, async (user) => {
     userInfo.classList.add('hidden');
     isAdmin = false;
     if (adminLink) adminLink.classList.add('hidden');
-    subscribeData();
+
+    // stop personal subscriptions
     if (unsubFavorites) unsubFavorites();
+    unsubFavorites = null;
     favoritesSet.clear();
     if (unsubFavoritesOSM) unsubFavoritesOSM();
+    unsubFavoritesOSM = null;
     favoritesOsmSet.clear();
-    applyFiltersOSM();
+
+    subscribeData(); // reload approved only
     applyFilters();
     applyFiltersOSM();
   }
@@ -408,19 +419,20 @@ onAuthStateChanged(auth, async (user) => {
 // Subscribe data (approved + my pending/rejected)
 function subscribeData() {
   // remove all current markers
-  markersMap.forEach(m => m.remove());
+  placesLayer?.clearLayers();
   markersMap.clear();
-  placesLayer.clearLayers();
 
   if (unsubApproved) unsubApproved();
   if (unsubMine) unsubMine();
+  unsubApproved = null;
+  unsubMine = null;
 
   const approvedQ = query(collection(db, 'places'), where('status', '==', 'approved'));
   unsubApproved = onSnapshot(approvedQ, (snap) => {
     snap.docChanges().forEach(ch => {
       if (ch.type === 'removed') {
         const m = markersMap.get(ch.doc.id);
-        if (m) { m.remove(); markersMap.delete(ch.doc.id); }
+        if (m) { placesLayer.removeLayer(m); markersMap.delete(ch.doc.id); }
       } else {
         const d = { id: ch.doc.id, ...ch.doc.data() };
         upsertMarker(d);
@@ -431,8 +443,6 @@ function subscribeData() {
   });
 
   if (currentUser) {
-    // Show my pending & rejected too
-    // Firestore supports 'in' up to 10 values
     const mineQ = query(collection(db, 'places'), where('createdBy', '==', currentUser.uid));
     unsubMine = onSnapshot(mineQ, (snap) => {
       snap.docChanges().forEach(ch => {
@@ -440,7 +450,7 @@ function subscribeData() {
         if (d.status !== 'approved') {
           if (ch.type === 'removed') {
             const m = markersMap.get(d.id);
-            if (m) { m.remove(); markersMap.delete(d.id); }
+            if (m) { placesLayer.removeLayer(m); markersMap.delete(d.id); }
           } else {
             upsertMarker(d);
           }
@@ -509,25 +519,6 @@ addPlaceForm.addEventListener('submit', async (e) => {
     addStatus.textContent = 'Ошибка: ' + err.message;
   }
 });
-    const files = Array.from(placePhotos.files || []);
-    const photoUrls = [];
-    for (const file of files.slice(0,10)) {
-      const safeName = `${Date.now()}_${file.name.replace(/[^\w.\-]+/g,'_')}`;
-      const ref = storageRef(storage, `places/${docRef.id}/${safeName}`);
-      await uploadBytes(ref, file);
-      const url = await getDownloadURL(ref);
-      photoUrls.push(url);
-    }
-    if (photoUrls.length) {
-      await updateDoc(doc(db, 'places', docRef.id), { photos: photoUrls });
-    }
-    addStatus.textContent = 'Отправлено на модерацию. Спасибо!';
-    setTimeout(closeAddModal, 800);
-  } catch (err) {
-    console.error(err);
-    addStatus.textContent = 'Ошибка: ' + err.message;
-  }
-});
 
 // Delete place
 async function deletePlace(placeId) {
@@ -565,7 +556,8 @@ function startRoutingTo(targetLatLng) {
       router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' })
       // Для своего ключа: L.Routing.openrouteservice('YOUR_KEY')
     }).addTo(map);
-  }, err => alert('Не удалось получить геолокацию'));
+    updateClearRouteBtn();
+  }, () => alert('Не удалось получить геолокацию'));
 }
 
 // OSM/Overpass
