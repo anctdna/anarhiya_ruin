@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Модерация — Abandoned Map</title>
+  <link rel="stylesheet" href="./styles.css"/>
+</head>
+<body>
+<header class="app-header">
+  <div class="brand">
+    <a href="./">🏚️ Abandoned Map</a>
+  </div>
+  <nav class="nav-actions">
+    <button id="loginBtn">Войти</button>
+    <button id="logoutBtn" class="hidden">Выйти</button>
+    <div id="userInfo" class="user-info hidden">
+      <img id="userAvatar" alt="user" />
+      <div>
+        <div id="userName"></div>
+        <div class="uid-line">UID: <span id="userUid"></span></div>
+      </div>
+    </div>
+  </nav>
+</header>
+
+<main class="layout narrow">
+  <section class="panel">
+    <h2>Модерация объектов</h2>
+    <div id="adminOnly" class="warn hidden">Доступ только для администраторов.</div>
+    <div id="pendingList" class="pending-list"></div>
+  </section>
+</main>
+
+<script type="module" src="./admin.js"></script>
+</body>
+</html>
