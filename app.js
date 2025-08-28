@@ -89,7 +89,17 @@ function initMap() {
   placesLayer = L.layerGroup().addTo(map);
   osmLayer = L.layerGroup();
 
+  // Добавление по клику на карту
   map.on('click', (e) => {
+    // если модалка закрыта — открыть её (при наличии авторизации)
+    if (modalAdd.classList.contains('hidden')) {
+      if (!currentUser) {
+        alert('Чтобы добавить объект, войдите в аккаунт');
+        return;
+      }
+      openAddModal();
+    }
+    // если модалка открыта — проставить координаты и временный маркер
     if (!modalAdd.classList.contains('hidden')) {
       placeLat.value = e.latlng.lat.toFixed(6);
       placeLng.value = e.latlng.lng.toFixed(6);
@@ -115,6 +125,7 @@ function initMap() {
       btn.title = 'Моё местоположение';
       btn.innerHTML = '📍';
       btn.style.padding = '6px 8px';
+      btn.style.background = '#fff';
       L.DomEvent.on(btn, 'click', (e) => {
         e.preventDefault();
         if (!navigator.geolocation) {
@@ -138,15 +149,20 @@ function initMap() {
   clearRouteControl.onAdd = function() {
     const btn = L.DomUtil.create('a', 'leaflet-bar');
     btn.href = '#';
-    btn.title = 'Сбросить маршрут';
+    btn.title = 'Сбросить маршрут (Esc или ПКМ по карте)';
     btn.innerHTML = '✖';
     btn.style.padding = '6px 10px';
+    btn.style.background = '#fff';
     btn.style.display = 'none'; // по умолчанию скрыта
     L.DomEvent.on(btn, 'click', (e) => { e.preventDefault(); clearRoute(); });
     this._btn = btn;
     return btn;
   };
   clearRouteControl.addTo(map);
+
+  // Доп. способы сбросить маршрут
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') clearRoute(); });
+  map.on('contextmenu', () => { if (routingControl) clearRoute(); });
 
   // OSM toggle handling
   if (toggleOSM) {
@@ -197,10 +213,10 @@ function renderPlaceItem(place) {
     <h4>${place.name} ${statusBadge}</h4>
     <div class="place-meta">${place.access} • охрана: ${place.security}${lootText}</div>
     <div class="place-actions">
-      <button data-action="fly">Показать на карте</button>
-      <button data-action="route">Маршрут</button>
-      <button data-action="favorite">${favoritesSet.has(place.id) ? '★ В избранном' : '☆ В избранное'}</button>
-      ${ (currentUser && (place.createdBy === currentUser.uid || isAdmin)) ? '<button data-action="delete" class="danger">Удалить</button>' : '' }
+      <button type="button" data-action="fly">Показать на карте</button>
+      <button type="button" data-action="route">Маршрут</button>
+      <button type="button" data-action="favorite">${favoritesSet.has(place.id) ? '★ В избранном' : '☆ В избранное'}</button>
+      ${ (currentUser && (place.createdBy === currentUser.uid || isAdmin)) ? '<button type="button" data-action="delete" class="danger">Удалить</button>' : '' }
     </div>
   `;
 
@@ -218,7 +234,6 @@ function renderPlaceItem(place) {
 }
 
 function upsertMarker(place) {
-  // visibility by filters handled later
   const color = place.status === 'approved' ? '#ff3b3b' : (place.status === 'pending' ? '#ff8a00' : '#555');
   const icon = makeDivIcon(color);
   let marker = markersMap.get(place.id);
@@ -241,9 +256,9 @@ function upsertMarker(place) {
     <div>${(place.description || '').replace(/\n/g,'<br/>')}</div>
     ${photosHtml}
     <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
-      <button class="pm-route">Маршрут</button>
-      <button class="pm-fav">${favTxt}</button>
-      ${ (currentUser && (place.createdBy === currentUser?.uid || isAdmin)) ? '<button class="pm-del">Удалить</button>' : '' }
+      <button type="button" class="pm-route">Маршрут</button>
+      <button type="button" class="pm-fav" data-id="${place.id}">${favTxt}</button>
+      ${ (currentUser && (place.createdBy === currentUser?.uid || isAdmin)) ? '<button type="button" class="pm-del">Удалить</button>' : '' }
       <a href="https://www.openstreetmap.org/?mlat=${place.lat}&mlon=${place.lng}#map=18/${place.lat}/${place.lng}" target="_blank">OSM</a>
     </div>
   `;
@@ -273,6 +288,8 @@ function applyFilters() {
   }
   // markers
   markersMap.forEach(marker => applyFiltersToMarker(marker));
+  // обновим подписи в открытых попапах
+  refreshOpenPopupsFavoritesUI();
 }
 
 function applyFiltersOSM() {
@@ -290,6 +307,7 @@ function applyFiltersOSM() {
       osmLayer.removeLayer(marker);
     }
   });
+  refreshOpenOSMPopupsFavoritesUI();
 }
 
 function applyFiltersToMarker(marker) {
@@ -304,6 +322,22 @@ function applyFiltersToMarker(marker) {
   }
 }
 
+// Favorites helpers: мгновенное обновление подписей в открытых попапах
+function refreshOpenPopupsFavoritesUI() {
+  document.querySelectorAll('.leaflet-popup .pm-fav').forEach(btn => {
+    const id = btn.dataset.id;
+    if (!id) return;
+    btn.textContent = favoritesSet.has(id) ? '★ Убрать из избранного' : '☆ В избранное';
+  });
+}
+function refreshOpenOSMPopupsFavoritesUI() {
+  document.querySelectorAll('.leaflet-popup .osm-fav').forEach(btn => {
+    const id = btn.dataset.id;
+    if (!id) return;
+    btn.textContent = favoritesOsmSet.has(id) ? '★ Убрать из избранного' : '☆ В избранное';
+  });
+}
+
 // Favorites
 async function toggleFavorite(placeId) {
   if (!currentUser) {
@@ -311,10 +345,22 @@ async function toggleFavorite(placeId) {
     return;
   }
   const favRef = doc(db, 'users', currentUser.uid, 'favorites', placeId);
-  if (favoritesSet.has(placeId)) {
-    await deleteDoc(favRef);
-  } else {
-    await setDoc(favRef, { createdAt: serverTimestamp() });
+  const wasFav = favoritesSet.has(placeId);
+
+  // Оптимистичное обновление UI
+  if (wasFav) favoritesSet.delete(placeId); else favoritesSet.add(placeId);
+  applyFilters(); // перерисует список и обновит попапы
+  try {
+    if (wasFav) {
+      await deleteDoc(favRef);
+    } else {
+      await setDoc(favRef, { createdAt: serverTimestamp() });
+    }
+  } catch (err) {
+    // Откат при ошибке
+    if (wasFav) favoritesSet.add(placeId); else favoritesSet.delete(placeId);
+    applyFilters();
+    alert('Не удалось обновить избранное: ' + err.message);
   }
 }
 
@@ -324,18 +370,29 @@ async function toggleFavoriteOSM(osmId, data) {
     return;
   }
   const favRef = doc(db, 'users', currentUser.uid, 'favorites_osm', osmId);
-  if (favoritesOsmSet.has(osmId)) {
-    await deleteDoc(favRef);
-  } else {
-    await setDoc(favRef, {
-      osmId,
-      type: data.type,     // 'node' | 'way'
-      name: data.name || 'OSM объект',
-      lat: data.lat,
-      lng: data.lng,
-      tags: data.tags || {},
-      addedAt: serverTimestamp()
-    });
+  const wasFav = favoritesOsmSet.has(osmId);
+
+  // Оптимистичное обновление UI
+  if (wasFav) favoritesOsmSet.delete(osmId); else favoritesOsmSet.add(osmId);
+  applyFiltersOSM();
+  try {
+    if (wasFav) {
+      await deleteDoc(favRef);
+    } else {
+      await setDoc(favRef, {
+        osmId,
+        type: data.type,     // 'node' | 'way'
+        name: data.name || 'OSM объект',
+        lat: data.lat,
+        lng: data.lng,
+        tags: data.tags || {},
+        addedAt: serverTimestamp()
+      });
+    }
+  } catch (err) {
+    if (wasFav) favoritesOsmSet.add(osmId); else favoritesOsmSet.delete(osmId);
+    applyFiltersOSM();
+    alert('Не удалось обновить избранное OSM: ' + err.message);
   }
 }
 
@@ -346,8 +403,8 @@ function subscribeFavorites() {
   unsubFavorites = onSnapshot(favCol, (snap) => {
     favoritesSet.clear();
     snap.forEach(d => favoritesSet.add(d.id));
-    // refresh list and markers
-    applyFilters();
+    applyFilters();              // обновит список
+    refreshOpenPopupsFavoritesUI(); // и попапы
   });
 }
 
@@ -616,8 +673,8 @@ async function fetchOSMByView() {
           <small>из OSM/Overpass</small><br/>
           <div style="max-width:240px">${tagsHtml}</div>
           <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
-            <button class="osm-route">Маршрут</button>
-            <button class="osm-fav">${favTxt}</button>
+            <button type="button" class="osm-route">Маршрут</button>
+            <button type="button" class="osm-fav" data-id="${osmId}">${favTxt}</button>
           </div>
         `)
         .addTo(osmLayer);
