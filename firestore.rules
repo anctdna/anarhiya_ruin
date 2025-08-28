@@ -1,0 +1,42 @@
+// Firestore security rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/config/admins)
+        && get(/databases/$(database)/documents/config/admins).data.uids.hasAny([request.auth.uid]);
+    }
+
+    // Конфиг — можно читать авторизованным (чтобы UI знал, кто админ). Писать через консоль.
+    match /config/{docId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /places/{placeId} {
+      allow read: if resource.data.status == 'approved'
+                  || (isSignedIn() && (resource.data.createdBy == request.auth.uid || isAdmin()));
+
+      allow create: if isSignedIn()
+                    && request.resource.data.createdBy == request.auth.uid
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.name is string
+                    && request.resource.data.lat is number
+                    && request.resource.data.lng is number;
+
+      // Обновлять может только админ (модерация, правки)
+      allow update: if isAdmin();
+
+      // Удалять — владелец или админ
+      allow delete: if isSignedIn()
+                    && (resource.data.createdBy == request.auth.uid || isAdmin());
+    }
+
+    match /users/{userId}/favorites/{placeId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+  }
+}
