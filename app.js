@@ -9,15 +9,11 @@ import {
   getFirestore, collection, doc, addDoc, setDoc, getDoc, getDocs,
   query, where, onSnapshot, updateDoc, deleteDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import {
-  getStorage, ref as storageRef, uploadBytes, getDownloadURL
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
 // Init Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const storage = getStorage(app);
 
 // UI elements
 const loginBtn = document.getElementById('loginBtn');
