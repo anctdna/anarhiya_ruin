@@ -35,11 +35,9 @@ const placeName = document.getElementById('placeName');
 const placeDescription = document.getElementById('placeDescription');
 const placeSecurity = document.getElementById('placeSecurity');
 const placeAccess = document.getElementById('placeAccess');
-thePlaceLoot: null;
 const placeLoot = document.getElementById('placeLoot');
 const placeLat = document.getElementById('placeLat');
 const placeLng = document.getElementById('placeLng');
-const placePhotos = document.getElementById('placePhotos');
 
 const filterAccess = document.getElementById('filterAccess');
 const filterSecurity = document.getElementById('filterSecurity');
@@ -209,7 +207,7 @@ function upsertMarker(place) {
       <button class="pm-route">Маршрут</button>
       <button class="pm-fav">${favTxt}</button>
       ${ (currentUser && (place.createdBy === currentUser?.uid || isAdmin)) ? '<button class="pm-del">Удалить</button>' : '' }
-      <a href="https://www.openstreetmap.org/?mlat='+${place.lat}+'&mlon='+${place.lng}+'#map=18/${place.lat}/${place.lng}" target="_blank">OSM</a>
+      <a href="https://www.openstreetmap.org/?mlat=${place.lat}&mlon=${place.lng}#map=18/${place.lat}/${place.lng}" target="_blank">OSM</a>
     </div>
   `;
   marker.bindPopup(popupHtml);
@@ -390,28 +388,39 @@ cancelAdd.addEventListener('click', closeAddModal);
 addPlaceForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!currentUser) { alert('Войдите'); return; }
+
   const name = placeName.value.trim();
   const description = placeDescription.value.trim();
   const security = placeSecurity.value;
   const access = placeAccess.value;
-  const loot = placeLoot.value.trim().length ? placeLoot.value.split(',').map(s=>s.trim()).filter(Boolean).slice(0,20) : [];
+  const loot = placeLoot.value.trim().length
+    ? placeLoot.value.split(',').map(s=>s.trim()).filter(Boolean).slice(0,20)
+    : [];
   const lat = parseFloat(placeLat.value);
   const lng = parseFloat(placeLng.value);
+
   if (!name || isNaN(lat) || isNaN(lng)) {
     addStatus.textContent = 'Проверьте название и координаты';
     return;
   }
+
   addStatus.textContent = 'Сохраняем...';
   try {
-    const docRef = await addDoc(collection(db, 'places'), {
+    await addDoc(collection(db, 'places'), {
       name, description, security, access, loot,
       lat, lng,
       status: 'pending',
-      photos: [],
+      photos: [],            // фото временно отключены
       createdBy: currentUser.uid,
       createdAt: serverTimestamp()
     });
-
+    addStatus.textContent = 'Отправлено на модерацию. Спасибо!';
+    setTimeout(closeAddModal, 800);
+  } catch (err) {
+    console.error(err);
+    addStatus.textContent = 'Ошибка: ' + err.message;
+  }
+});
     const files = Array.from(placePhotos.files || []);
     const photoUrls = [];
     for (const file of files.slice(0,10)) {
