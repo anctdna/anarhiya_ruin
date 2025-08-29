@@ -46,6 +46,14 @@ const onlyFavorites = document.getElementById('onlyFavorites');
 const searchInput = document.getElementById('searchInput');
 const placesList = document.getElementById('placesList');
 
+// Favorites UI
+const openFavoritesBtn = document.getElementById('openFavorites');
+const favoritesModal = document.getElementById('favoritesModal');
+const closeFavoritesBtn = document.getElementById('closeFavorites');
+const favoritesPlacesListEl = document.getElementById('favoritesPlacesList');
+const favoritesOsmListEl = document.getElementById('favoritesOsmList');
+const favoritesCountBadge = document.getElementById('favoritesCount');
+
 // State
 let currentUser = null;
 let isAdmin = false;
@@ -57,13 +65,17 @@ let unsubFavoritesOSM = null;
 let clearRouteControl; // кнопка сброса маршрута
 
 const markersMap = new Map(); // placeId -> marker
-const favoritesSet = new Set();
-const favoritesOsmSet = new Set();
+const favoritesSet = new Set(); // placeId
+const favoritesOsmSet = new Set(); // "node-123" / "way-456"
 const osmMarkersMap = new Map(); // 'type-id' -> marker
+
+// Кеши для списков избранного
+const favoritePlacesCache = new Map(); // placeId -> placeData | null
+const favoritesOsmMap = new Map();     // osmId -> { id, osmId, name, lat, lng, type, tags, ... }
 
 let map, routingControl, placesLayer, osmLayer, tempAddMarker = null;
 
-// Helpers: route clear/show button
+// Helpers: Route clear/show button
 function updateClearRouteBtn() {
   if (clearRouteControl && clearRouteControl._btn) {
     clearRouteControl._btn.style.display = routingControl ? 'block' : 'none';
@@ -92,7 +104,7 @@ function initMap() {
   // Добавление по клику на карту
   map.on('click', (e) => {
     // если модалка закрыта — открыть её (при наличии авторизации)
-    if (modalAdd.classList.contains('hidden')) {
+    if (modalAdd?.classList.contains('hidden')) {
       if (!currentUser) {
         alert('Чтобы добавить объект, войдите в аккаунт');
         return;
@@ -100,7 +112,7 @@ function initMap() {
       openAddModal();
     }
     // если модалка открыта — проставить координаты и временный маркер
-    if (!modalAdd.classList.contains('hidden')) {
+    if (!modalAdd?.classList.contains('hidden')) {
       placeLat.value = e.latlng.lat.toFixed(6);
       placeLng.value = e.latlng.lng.toFixed(6);
       if (tempAddMarker) {
@@ -117,7 +129,7 @@ function initMap() {
   });
 
   // Simple locate button
-  L.control.locate = function(opts) {
+  L.control.locate = function() {
     const control = L.control({position: 'topleft'});
     control.onAdd = function() {
       const btn = L.DomUtil.create('a', 'leaflet-bar');
@@ -191,11 +203,11 @@ function makeDivIcon(color='#ff3b3b') {
 }
 
 function placeMatchesFilters(place) {
-  const byAccess = !filterAccess.value || place.access === filterAccess.value;
-  const bySec = !filterSecurity.value || place.security === filterSecurity.value;
-  const queryText = (searchInput.value || '').toLowerCase();
+  const byAccess = !filterAccess?.value || place.access === filterAccess.value;
+  const bySec = !filterSecurity?.value || place.security === filterSecurity.value;
+  const queryText = (searchInput?.value || '').toLowerCase();
   const bySearch = !queryText || (place.name?.toLowerCase().includes(queryText) || place.description?.toLowerCase().includes(queryText));
-  const byFav = !onlyFavorites.checked || favoritesSet.has(place.id);
+  const byFav = !onlyFavorites?.checked || favoritesSet.has(place.id);
   return byAccess && bySec && bySearch && byFav;
 }
 
@@ -276,8 +288,9 @@ function upsertMarker(place) {
   applyFiltersToMarker(marker);
 }
 
+// Apply filters
 function applyFilters() {
-  // list
+  if (!placesList) return;
   placesList.innerHTML = '';
   const allPlaces = Array.from(markersMap.values()).map(m => m._placeData);
   const filtered = allPlaces
@@ -288,16 +301,15 @@ function applyFilters() {
   }
   // markers
   markersMap.forEach(marker => applyFiltersToMarker(marker));
-  // обновим подписи в открытых попапах
   refreshOpenPopupsFavoritesUI();
 }
 
 function applyFiltersOSM() {
-  const queryText = (searchInput.value || '').toLowerCase();
+  const queryText = (searchInput?.value || '').toLowerCase();
   osmMarkersMap.forEach((marker, osmId) => {
     const d = marker._osmData; // { id, name, lat, lng, type, tags }
     const matchesSearch = !queryText || (d.name || '').toLowerCase().includes(queryText);
-    const matchesFav = !onlyFavorites.checked || favoritesOsmSet.has(osmId);
+    const matchesFav = !onlyFavorites?.checked || favoritesOsmSet.has(osmId);
     const visible = matchesSearch && matchesFav;
 
     if (visible) {
@@ -322,7 +334,7 @@ function applyFiltersToMarker(marker) {
   }
 }
 
-// Favorites helpers: мгновенное обновление подписей в открытых попапах
+// Favorites UI helpers
 function refreshOpenPopupsFavoritesUI() {
   document.querySelectorAll('.leaflet-popup .pm-fav').forEach(btn => {
     const id = btn.dataset.id;
@@ -337,8 +349,139 @@ function refreshOpenOSMPopupsFavoritesUI() {
     btn.textContent = favoritesOsmSet.has(id) ? '★ Убрать из избранного' : '☆ В избранное';
   });
 }
+function updateFavoritesBadge() {
+  if (!favoritesCountBadge) return;
+  const total = favoritesSet.size + favoritesOsmSet.size;
+  favoritesCountBadge.textContent = total;
+  favoritesCountBadge.style.display = total ? 'inline-block' : 'none';
+}
+function getPlaceDataById(id) {
+  const m = markersMap.get(id);
+  if (m && m._placeData) return m._placeData;
+  return favoritePlacesCache.get(id) || null;
+}
 
-// Favorites
+// Favorites panel (modal)
+function openFavorites() {
+  if (!currentUser) {
+    alert('Войдите, чтобы видеть избранное');
+    return;
+  }
+  favoritesModal?.classList.remove('hidden');
+  renderFavoritesPanel();
+}
+function closeFavorites() {
+  favoritesModal?.classList.add('hidden');
+}
+openFavoritesBtn?.addEventListener('click', openFavorites);
+closeFavoritesBtn?.addEventListener('click', closeFavorites);
+
+function renderFavoritesPanel() {
+  if (!favoritesPlacesListEl || !favoritesOsmListEl) return;
+
+  // Места
+  favoritesPlacesListEl.innerHTML = '';
+  const placeIds = Array.from(favoritesSet);
+  if (placeIds.length === 0) {
+    favoritesPlacesListEl.innerHTML = '<div class="muted">Пусто</div>';
+  } else {
+    const frag = document.createDocumentFragment();
+    placeIds.forEach(id => {
+      const p = getPlaceDataById(id);
+      const el = document.createElement('div');
+      el.className = 'fav-item';
+      if (!p) {
+        el.innerHTML = `
+          <div class="title">[объект недоступен]</div>
+          <div class="actions">
+            <button type="button" data-action="remove">Убрать</button>
+          </div>
+        `;
+        el.querySelector('[data-action="remove"]').addEventListener('click', () => toggleFavorite(id));
+      } else {
+        el.innerHTML = `
+          <div class="title">${p.name}</div>
+          <div class="meta">${p.access || ''} ${p.security ? '• охрана: ' + p.security : ''}</div>
+          <div class="actions">
+            <button type="button" data-action="show">Показать</button>
+            <button type="button" data-action="route">Маршрут</button>
+            <button type="button" data-action="remove">Убрать</button>
+          </div>
+        `;
+        el.querySelector('[data-action="show"]').addEventListener('click', () => {
+          map.setView([p.lat, p.lng], 16);
+          const m = markersMap.get(id);
+          if (m) m.openPopup();
+          closeFavorites();
+        });
+        el.querySelector('[data-action="route"]').addEventListener('click', () => {
+          startRoutingTo([p.lat, p.lng]);
+          closeFavorites();
+        });
+        el.querySelector('[data-action="remove"]').addEventListener('click', () => toggleFavorite(id));
+      }
+      frag.appendChild(el);
+    });
+    favoritesPlacesListEl.appendChild(frag);
+  }
+
+  // OSM
+  favoritesOsmListEl.innerHTML = '';
+  const osmItems = Array.from(favoritesOsmMap.values());
+  if (osmItems.length === 0) {
+    favoritesOsmListEl.innerHTML = '<div class="muted">Пусто</div>';
+  } else {
+    const frag = document.createDocumentFragment();
+    osmItems.forEach(d => {
+      const el = document.createElement('div');
+      el.className = 'fav-item';
+      const name = d.name || 'OSM объект';
+      el.innerHTML = `
+        <div class="title">${name}</div>
+        <div class="meta">${d.type?.toUpperCase() || ''} • ${d.lat?.toFixed ? d.lat.toFixed(5) : d.lat}, ${d.lng?.toFixed ? d.lng.toFixed(5) : d.lng}</div>
+        <div class="actions">
+          <button type="button" data-action="show">Показать</button>
+          <button type="button" data-action="route">Маршрут</button>
+          <button type="button" data-action="remove">Убрать</button>
+        </div>
+      `;
+      el.querySelector('[data-action="show"]').addEventListener('click', async () => {
+        map.setView([d.lat, d.lng], 16);
+        // Включим слой OSM при необходимости
+        if (typeof toggleOSM !== 'undefined' && toggleOSM && !toggleOSM.checked) {
+          toggleOSM.checked = true;
+          toggleOSM.dispatchEvent(new Event('change'));
+        } else {
+          map.addLayer(osmLayer);
+        }
+        // Если маркер уже есть — откроем попап, иначе добавим временный
+        const m = osmMarkersMap.get(d.osmId || d.id);
+        if (m) {
+          m.openPopup();
+        } else {
+          const temp = L.marker([d.lat, d.lng], { icon: makeDivIcon('#4ea0ff') })
+            .bindPopup(`<b>${name}</b><br/><small>из избранного OSM</small>`)
+            .addTo(osmLayer)
+            .openPopup();
+          setTimeout(() => { try { osmLayer.removeLayer(temp); } catch(_){} }, 10000);
+        }
+        closeFavorites();
+      });
+      el.querySelector('[data-action="route"]').addEventListener('click', () => {
+        startRoutingTo([d.lat, d.lng]);
+        closeFavorites();
+      });
+      el.querySelector('[data-action="remove"]').addEventListener('click', () => {
+        toggleFavoriteOSM(d.osmId || d.id, d);
+      });
+      frag.appendChild(el);
+    });
+    favoritesOsmListEl.appendChild(frag);
+  }
+  updateFavoritesBadge();
+}
+
+// Favorites actions
 async function toggleFavorite(placeId) {
   if (!currentUser) {
     alert('Войдите, чтобы использовать избранное');
@@ -349,7 +492,8 @@ async function toggleFavorite(placeId) {
 
   // Оптимистичное обновление UI
   if (wasFav) favoritesSet.delete(placeId); else favoritesSet.add(placeId);
-  applyFilters(); // перерисует список и обновит попапы
+  updateFavoritesBadge();
+  applyFilters();
   try {
     if (wasFav) {
       await deleteDoc(favRef);
@@ -359,6 +503,7 @@ async function toggleFavorite(placeId) {
   } catch (err) {
     // Откат при ошибке
     if (wasFav) favoritesSet.add(placeId); else favoritesSet.delete(placeId);
+    updateFavoritesBadge();
     applyFilters();
     alert('Не удалось обновить избранное: ' + err.message);
   }
@@ -374,6 +519,7 @@ async function toggleFavoriteOSM(osmId, data) {
 
   // Оптимистичное обновление UI
   if (wasFav) favoritesOsmSet.delete(osmId); else favoritesOsmSet.add(osmId);
+  updateFavoritesBadge();
   applyFiltersOSM();
   try {
     if (wasFav) {
@@ -391,6 +537,7 @@ async function toggleFavoriteOSM(osmId, data) {
     }
   } catch (err) {
     if (wasFav) favoritesOsmSet.add(osmId); else favoritesOsmSet.delete(osmId);
+    updateFavoritesBadge();
     applyFiltersOSM();
     alert('Не удалось обновить избранное OSM: ' + err.message);
   }
@@ -400,11 +547,26 @@ function subscribeFavorites() {
   if (!currentUser) return;
   const favCol = collection(db, 'users', currentUser.uid, 'favorites');
   if (unsubFavorites) unsubFavorites();
-  unsubFavorites = onSnapshot(favCol, (snap) => {
+  unsubFavorites = onSnapshot(favCol, async (snap) => {
     favoritesSet.clear();
     snap.forEach(d => favoritesSet.add(d.id));
-    applyFilters();              // обновит список
-    refreshOpenPopupsFavoritesUI(); // и попапы
+
+    // подгрузим недостающие документы избранного
+    const missing = Array.from(favoritesSet).filter(id => !markersMap.has(id) && !favoritePlacesCache.has(id));
+    if (missing.length) {
+      await Promise.all(missing.map(async (id) => {
+        try {
+          const r = await getDoc(doc(db, 'places', id));
+          favoritePlacesCache.set(id, r.exists() ? { id, ...r.data() } : null);
+        } catch {
+          favoritePlacesCache.set(id, null);
+        }
+      }));
+    }
+
+    applyFilters();
+    renderFavoritesPanel();
+    updateFavoritesBadge();
   });
 }
 
@@ -414,17 +576,23 @@ function subscribeFavoritesOSM() {
   if (unsubFavoritesOSM) unsubFavoritesOSM();
   unsubFavoritesOSM = onSnapshot(favCol, (snap) => {
     favoritesOsmSet.clear();
-    snap.forEach(d => favoritesOsmSet.add(d.id)); // id вида "node-123" или "way-456"
+    favoritesOsmMap.clear();
+    snap.forEach(d => {
+      favoritesOsmSet.add(d.id);
+      favoritesOsmMap.set(d.id, { id: d.id, ...d.data() });
+    });
     applyFiltersOSM();
+    renderFavoritesPanel();
+    updateFavoritesBadge();
   });
 }
 
 // Auth UI
-loginBtn.addEventListener('click', async () => {
+loginBtn?.addEventListener('click', async () => {
   const provider = new GoogleAuthProvider();
   await signInWithPopup(auth, provider).catch(err => alert(err.message));
 });
-logoutBtn.addEventListener('click', () => signOut(auth));
+logoutBtn?.addEventListener('click', () => signOut(auth));
 
 async function loadAdminStatus(uid) {
   try {
@@ -439,37 +607,42 @@ async function loadAdminStatus(uid) {
 onAuthStateChanged(auth, async (user) => {
   currentUser = user || null;
   if (currentUser) {
-    loginBtn.classList.add('hidden');
-    logoutBtn.classList.remove('hidden');
-    userInfo.classList.remove('hidden');
-    userName.textContent = currentUser.displayName || 'Без имени';
-    userUid.textContent = currentUser.uid;
-    userAvatar.src = currentUser.photoURL || 'https://placehold.co/32x32';
+    loginBtn?.classList.add('hidden');
+    logoutBtn?.classList.remove('hidden');
+    userInfo?.classList.remove('hidden');
+    if (userName) userName.textContent = currentUser.displayName || 'Без имени';
+    if (userUid) userUid.textContent = currentUser.uid;
+    if (userAvatar) userAvatar.src = currentUser.photoURL || 'https://placehold.co/32x32';
     isAdmin = await loadAdminStatus(currentUser.uid);
-    if (adminLink) {
-      adminLink.classList.toggle('hidden', !isAdmin);
-    }
+    if (adminLink) adminLink.classList.toggle('hidden', !isAdmin);
+
     subscribeData();
     subscribeFavorites();
     subscribeFavoritesOSM();
+    updateFavoritesBadge();
   } else {
-    loginBtn.classList.remove('hidden');
-    logoutBtn.classList.add('hidden');
-    userInfo.classList.add('hidden');
-    isAdmin = false;
+    loginBtn?.classList.remove('hidden');
+    logoutBtn?.classList.add('hidden');
+    userInfo?.classList.add('hidden');
     if (adminLink) adminLink.classList.add('hidden');
+    isAdmin = false;
 
-    // stop personal subscriptions
     if (unsubFavorites) unsubFavorites();
     unsubFavorites = null;
     favoritesSet.clear();
+
     if (unsubFavoritesOSM) unsubFavoritesOSM();
     unsubFavoritesOSM = null;
     favoritesOsmSet.clear();
 
+    favoritePlacesCache.clear();
+    favoritesOsmMap.clear();
+
     subscribeData(); // reload approved only
     applyFilters();
     applyFiltersOSM();
+    updateFavoritesBadge();
+    closeFavorites();
   }
 });
 
@@ -521,26 +694,28 @@ function subscribeData() {
 
 // Add modal
 function openAddModal() {
+  if (!addPlaceForm || !modalAdd) return;
   addStatus.textContent = '';
   addPlaceForm.reset();
   modalAdd.classList.remove('hidden');
-  setTimeout(()=> placeName.focus(), 0);
+  setTimeout(()=> placeName?.focus(), 0);
 }
 function closeAddModal() {
+  if (!modalAdd) return;
   modalAdd.classList.add('hidden');
   if (tempAddMarker) { tempAddMarker.remove(); tempAddMarker = null; }
 }
-addPlaceBtn.addEventListener('click', () => {
+addPlaceBtn?.addEventListener('click', () => {
   if (!currentUser) {
     alert('Войдите, чтобы добавлять объекты');
     return;
   }
   openAddModal();
 });
-closeModalAdd.addEventListener('click', closeAddModal);
-cancelAdd.addEventListener('click', closeAddModal);
+closeModalAdd?.addEventListener('click', closeAddModal);
+cancelAdd?.addEventListener('click', closeAddModal);
 
-addPlaceForm.addEventListener('submit', async (e) => {
+addPlaceForm?.addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!currentUser) { alert('Войдите'); return; }
 
@@ -587,13 +762,16 @@ async function deletePlace(placeId) {
   }
 }
 
-// Filters
-[filterAccess, filterSecurity, onlyFavorites].forEach(el => el.addEventListener('change', applyFilters));
-searchInput.addEventListener('input', () => {
-  // small debounce
-  if (applyFilters._t) clearTimeout(applyFilters._t);
-  applyFilters._t = setTimeout(applyFilters, 200);
-});
+// Filters + debounce both lists
+function scheduleApplyAll() {
+  if (scheduleApplyAll._t) clearTimeout(scheduleApplyAll._t);
+  scheduleApplyAll._t = setTimeout(() => {
+    applyFilters();
+    applyFiltersOSM();
+  }, 200);
+}
+[filterAccess, filterSecurity, onlyFavorites].forEach(el => el?.addEventListener('change', scheduleApplyAll));
+searchInput?.addEventListener('input', scheduleApplyAll);
 
 // Routing
 function startRoutingTo(targetLatLng) {
