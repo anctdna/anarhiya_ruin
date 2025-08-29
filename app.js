@@ -52,6 +52,150 @@ const favoritesModal = document.getElementById('favoritesModal');
 const closeFavoritesBtn = document.getElementById('closeFavorites');
 const favoritesPlacesListEl = document.getElementById('favoritesPlacesList');
 const favoritesOsmListEl = document.getElementById('favoritesOsmList');
+
+// ---- Favorites modal ----
+function openFavorites() {
+  if (!currentUser) {
+    alert('Войдите, чтобы видеть избранное');
+    return;
+  }
+  if (!favoritesModal) return;
+  favoritesModal.classList.remove('hidden');
+  renderFavoritesPanel();
+}
+function closeFavorites() {
+  if (!favoritesModal) return;
+  favoritesModal.classList.add('hidden');
+}
+
+// Навешиваем обработчики
+if (openFavoritesBtn) openFavoritesBtn.addEventListener('click', openFavorites);
+if (closeFavoritesBtn) closeFavoritesBtn.addEventListener('click', closeFavorites);
+
+// Вспомогательное получение данных места
+function getFavPlaceData(id) {
+  if (typeof getPlaceDataById === 'function') return getPlaceDataById(id);
+  var m = markersMap.get(id);
+  if (m && m._placeData) return m._placeData;
+  return favoritePlacesCache.get ? (favoritePlacesCache.get(id) || null) : null;
+}
+
+// Рендер модалки
+function renderFavoritesPanel() {
+  if (!favoritesPlacesListEl || !favoritesOsmListEl) return;
+
+  // Места
+  favoritesPlacesListEl.innerHTML = '';
+  var placeIds = Array.from(favoritesSet);
+  if (placeIds.length === 0) {
+    favoritesPlacesListEl.innerHTML = '<div class="muted">Пусто</div>';
+  } else {
+    var fragP = document.createDocumentFragment();
+    placeIds.forEach(function(id) {
+      var p = getFavPlaceData(id);
+      var el = document.createElement('div');
+      el.className = 'fav-item';
+      if (!p) {
+        el.innerHTML = ''+
+          '<div class="title">[объект недоступен]</div>'+
+          '<div class="actions"><button type="button" data-action="remove">Убрать</button></div>';
+        var rm = el.querySelector('[data-action="remove"]');
+        if (rm) rm.addEventListener('click', function(){ toggleFavorite(id); });
+      } else {
+        el.innerHTML = ''+
+          '<div class="title">'+(p.name||'Без названия')+'</div>'+
+          '<div class="meta">'+(p.access||'')+(p.security?(' • охрана: '+p.security):'')+'</div>'+
+          '<div class="actions">'+
+            '<button type="button" data-action="show">Показать</button>'+
+            '<button type="button" data-action="route">Маршрут</button>'+
+            '<button type="button" data-action="remove">Убрать</button>'+
+          '</div>';
+        var sh = el.querySelector('[data-action="show"]');
+        if (sh) sh.addEventListener('click', function(){
+          map.setView([p.lat, p.lng], 16);
+          var m = markersMap.get(id);
+          if (m && m.openPopup) m.openPopup();
+          closeFavorites();
+        });
+        var rt = el.querySelector('[data-action="route"]');
+        if (rt) rt.addEventListener('click', function(){
+          startRoutingTo([p.lat, p.lng]);
+          closeFavorites();
+        });
+        var rm2 = el.querySelector('[data-action="remove"]');
+        if (rm2) rm2.addEventListener('click', function(){ toggleFavorite(id); });
+      }
+      fragP.appendChild(el);
+    });
+    favoritesPlacesListEl.appendChild(fragP);
+  }
+
+  // OSM
+  favoritesOsmListEl.innerHTML = '';
+  var osmItems = Array.from(favoritesOsmMap.values ? favoritesOsmMap.values() : []).map(function(v){return v;});
+  if (osmItems.length === 0) {
+    favoritesOsmListEl.innerHTML = '<div class="muted">Пусто</div>';
+  } else {
+    var fragO = document.createDocumentFragment();
+    osmItems.forEach(function(d) {
+      var lat = d.data ? d.data.lat : d.lat;
+      var lng = d.data ? d.data.lng : d.lng;
+      var name = (d.data ? d.data.name : d.name) || 'OSM объект';
+      var osmId = d.id || d.osmId;
+
+      var el = document.createElement('div');
+      el.className = 'fav-item';
+      el.innerHTML = ''+
+        '<div class="title">'+name+'</div>'+
+        '<div class="meta">'+((d.data?d.data.type:d.type)||'').toString().toUpperCase()+' • '+(+lat).toFixed(5)+', '+(+lng).toFixed(5)+'</div>'+
+        '<div class="actions">'+
+          '<button type="button" data-action="show">Показать</button>'+
+          '<button type="button" data-action="route">Маршрут</button>'+
+          '<button type="button" data-action="remove">Убрать</button>'+
+        '</div>';
+
+      var sh = el.querySelector('[data-action="show"]');
+      if (sh) sh.addEventListener('click', function(){
+        map.setView([lat, lng], 16);
+        // пробуем открыть verified, затем dynamic, иначе временный маркер
+        var mv = osmVerifiedMarkersMap.get(osmId);
+        if (mv && mv.openPopup) mv.openPopup();
+        else {
+          var md = osmMarkersMap.get(osmId);
+          if (md && md.openPopup) {
+            if (toggleOSM && !toggleOSM.checked) {
+              toggleOSM.checked = true;
+              toggleOSM.dispatchEvent(new Event('change'));
+            }
+            md.openPopup();
+          } else {
+            var temp = L.marker([lat, lng], { icon: makeDivIcon('#4ea0ff') })
+              .bindPopup('<b>'+name+'</b><br/><small>из избранного OSM</small>')
+              .addTo(osmVerifiedLayer)
+              .openPopup();
+            setTimeout(function(){ try { osmVerifiedLayer.removeLayer(temp); } catch(_){} }, 8000);
+          }
+        }
+        closeFavorites();
+      });
+
+      var rt = el.querySelector('[data-action="route"]');
+      if (rt) rt.addEventListener('click', function(){
+        startRoutingTo([lat, lng]);
+        closeFavorites();
+      });
+
+      var rm = el.querySelector('[data-action="remove"]');
+      if (rm) rm.addEventListener('click', function(){
+        toggleFavoriteOSM(osmId, { name:name, lat:lat, lng:lng, type:(d.data?d.data.type:d.type)||'node', tags:(d.data?d.data.tags:d.tags)||{} });
+      });
+
+      fragO.appendChild(el);
+    });
+    favoritesOsmListEl.appendChild(fragO);
+  }
+}
+
 const favoritesCountBadge = document.getElementById('favoritesCount');
 
 // State
