@@ -19,6 +19,10 @@
     defer
   ></script>
 
+   <button id="openFavorites" class="secondary">
+    ★ Избранное <span id="favoritesCount" class="badge" style="display:none">0</span>
+  </button>
+
   <!-- Leaflet Routing Machine -->
   <link
     rel="stylesheet"
@@ -34,7 +38,7 @@
 <body>
 <header class="app-header">
   <div class="brand">
-    <span>🏚️ Abandoned Map</span>
+    <span>🏚️ Анархия руин</span>
   </div>
   <nav class="nav-actions">
     <a href="./admin.html" id="adminLink" class="hidden">Модерация</a>
@@ -54,6 +58,23 @@
   <aside class="sidebar">
     <section class="panel">
       <button id="addPlaceBtn" class="primary">+ Добавить объект</button>
+
+      <div id="favoritesModal" class="modal hidden">
+  <div class="modal-content" style="min-width:320px;max-width:680px">
+    <button id="closeFavorites" class="close">×</button>
+    <h3>Избранное</h3>
+
+    <div class="fav-section">
+      <h4>Места</h4>
+      <div id="favoritesPlacesList" class="list"></div>
+    </div>
+
+    <div class="fav-section" style="margin-top:12px">
+      <h4>OSM</h4>
+      <div id="favoritesOsmList" class="list"></div>
+    </div>
+  </div>
+</div>
 
       <div class="divider"></div>
 
