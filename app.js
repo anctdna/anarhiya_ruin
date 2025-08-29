@@ -970,7 +970,7 @@ function renderOsmPopup(marker) {
 
   const reportControls =
     '<div class="osm-report-controls" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'+
-      '<button type="button" class="osm-report-flag">⚑ Пометить</button>'+
+      '<button type="button" class="osm-report-flag">⚑ Отсутствует</button>'+
       '<button type="button" class="osm-report-note">✎ Заметка</button>'+
     '</div>';
 
@@ -1110,7 +1110,7 @@ function renderOsmListItem(item) {
       '<button type="button" data-action="show">Показать на карте</button>'+
       '<button type="button" data-action="route">Маршрут</button>'+
       '<button type="button" data-action="favorite">'+(favoritesOsmSet.has(item.id)?'★ В избранном':'☆ В избранное')+'</button>'+
-      '<button type="button" data-action="flag">Пометить</button>'+
+      '<button type="button" data-action="flag">Отсутствует</button>'+
       '<button type="button" data-action="note">Заметка</button>'+
     '</div>';
 
