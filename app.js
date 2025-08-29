@@ -829,12 +829,12 @@ function renderOsmPopup(marker) {
     // репорты (для всех пользователей)
     node.querySelector('.osm-report-flag').addEventListener('click', async () => {
       if (!currentUser) return alert('Войдите, чтобы отправлять жалобы');
-      const reason = prompt('Почему объект спорный? (необязательно)') || '';
+      const reason = prompt('Комментарий') || '';
       await submitOsmReport(d.osmId, 'flag', { reason });
     });
     node.querySelector('.osm-report-note').addEventListener('click', async () => {
       if (!currentUser) return alert('Войдите, чтобы отправлять заметки');
-      const note = prompt('Заметка (увидит модератор):', '') || '';
+      const note = prompt('Заметка', '') || '';
       if (note.trim()) await submitOsmReport(d.osmId, 'note', { note });
     });
 
