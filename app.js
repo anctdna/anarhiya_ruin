@@ -61,6 +61,7 @@ let unsubApproved = null;
 let unsubMine = null;
 let unsubFavorites = null;
 let unsubFavoritesOSM = null;
+let unsubOsmModeration = null;
 
 let clearRouteControl; // кнопка сброса маршрута
 
@@ -72,6 +73,9 @@ const osmMarkersMap = new Map(); // 'type-id' -> marker
 // Кеши для списков избранного
 const favoritePlacesCache = new Map(); // placeId -> placeData | null
 const favoritesOsmMap = new Map();     // osmId -> { id, osmId, name, lat, lng, type, tags, ... }
+
+// Модерация OSM
+const osmModerationMap = new Map(); // osmId -> { status, note, updatedAt, updatedBy, ... }
 
 let map, routingControl, placesLayer, osmLayer, tempAddMarker = null;
 
@@ -101,30 +105,27 @@ function initMap() {
   placesLayer = L.layerGroup().addTo(map);
   osmLayer = L.layerGroup();
 
-  // Добавление по клику на карту
-  map.on('click', (e) => {
-    // если модалка закрыта — открыть её (при наличии авторизации)
+  // ДОБАВЛЕНИЕ ПО ПКМ (правой кнопкой) — ЛКМ НЕ ИСПОЛЬЗУЕМ
+  map.on('contextmenu', (e) => {
+    // ПКМ открывает модалку добавления + ставит маркер
+    if (!currentUser) {
+      alert('Чтобы добавить объект, войдите в аккаунт');
+      return;
+    }
     if (modalAdd?.classList.contains('hidden')) {
-      if (!currentUser) {
-        alert('Чтобы добавить объект, войдите в аккаунт');
-        return;
-      }
       openAddModal();
     }
-    // если модалка открыта — проставить координаты и временный маркер
-    if (!modalAdd?.classList.contains('hidden')) {
-      placeLat.value = e.latlng.lat.toFixed(6);
-      placeLng.value = e.latlng.lng.toFixed(6);
-      if (tempAddMarker) {
-        tempAddMarker.setLatLng(e.latlng);
-      } else {
-        tempAddMarker = L.marker(e.latlng, { draggable: true }).addTo(map);
-        tempAddMarker.on('dragend', () => {
-          const { lat, lng } = tempAddMarker.getLatLng();
-          placeLat.value = lat.toFixed(6);
-          placeLng.value = lng.toFixed(6);
-        });
-      }
+    placeLat.value = e.latlng.lat.toFixed(6);
+    placeLng.value = e.latlng.lng.toFixed(6);
+    if (tempAddMarker) {
+      tempAddMarker.setLatLng(e.latlng);
+    } else {
+      tempAddMarker = L.marker(e.latlng, { draggable: true }).addTo(map);
+      tempAddMarker.on('dragend', () => {
+        const { lat, lng } = tempAddMarker.getLatLng();
+        placeLat.value = lat.toFixed(6);
+        placeLng.value = lng.toFixed(6);
+      });
     }
   });
 
@@ -138,8 +139,8 @@ function initMap() {
       btn.innerHTML = '📍';
       btn.style.padding = '6px 8px';
       btn.style.background = '#fff';
-      L.DomEvent.on(btn, 'click', (e) => {
-        e.preventDefault();
+      L.DomEvent.on(btn, 'click', (ev) => {
+        ev.preventDefault();
         if (!navigator.geolocation) {
           alert('Геолокация недоступна');
           return;
@@ -161,7 +162,7 @@ function initMap() {
   clearRouteControl.onAdd = function() {
     const btn = L.DomUtil.create('a', 'leaflet-bar');
     btn.href = '#';
-    btn.title = 'Сбросить маршрут (Esc или ПКМ по карте)';
+    btn.title = 'Сбросить маршрут (Esc)';
     btn.innerHTML = '✖';
     btn.style.padding = '6px 10px';
     btn.style.background = '#fff';
@@ -172,9 +173,8 @@ function initMap() {
   };
   clearRouteControl.addTo(map);
 
-  // Доп. способы сбросить маршрут
+  // Доп. способ сбросить маршрут — Esc (ПКМ больше не используется для сброса)
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape') clearRoute(); });
-  map.on('contextmenu', () => { if (routingControl) clearRoute(); });
 
   // OSM toggle handling
   if (toggleOSM) {
@@ -310,7 +310,20 @@ function applyFiltersOSM() {
     const d = marker._osmData; // { id, name, lat, lng, type, tags }
     const matchesSearch = !queryText || (d.name || '').toLowerCase().includes(queryText);
     const matchesFav = !onlyFavorites?.checked || favoritesOsmSet.has(osmId);
-    const visible = matchesSearch && matchesFav;
+    const mod = osmModerationMap.get(osmId); // {status}
+    const notHidden = !(mod?.status === 'hidden');
+    const visible = matchesSearch && matchesFav && notHidden;
+
+    // обновим цвет и подписи под статус модерации
+    const color = getOsmStatusColor(mod?.status);
+    marker.setIcon(makeDivIcon(color));
+    const popupEl = marker.getPopup()?.getElement();
+    if (popupEl) {
+      const statusSpan = popupEl.querySelector('.osm-mod-status');
+      if (statusSpan) statusSpan.textContent = humanOsmStatus(mod?.status);
+      const hideBtn = popupEl.querySelector('.osm-mod-hide');
+      if (hideBtn) hideBtn.textContent = (mod?.status === 'hidden') ? 'Показать' : 'Скрыть';
+    }
 
     if (visible) {
       if (!osmLayer.hasLayer(marker)) marker.addTo(osmLayer);
@@ -447,14 +460,12 @@ function renderFavoritesPanel() {
       `;
       el.querySelector('[data-action="show"]').addEventListener('click', async () => {
         map.setView([d.lat, d.lng], 16);
-        // Включим слой OSM при необходимости
         if (typeof toggleOSM !== 'undefined' && toggleOSM && !toggleOSM.checked) {
           toggleOSM.checked = true;
           toggleOSM.dispatchEvent(new Event('change'));
         } else {
           map.addLayer(osmLayer);
         }
-        // Если маркер уже есть — откроем попап, иначе добавим временный
         const m = osmMarkersMap.get(d.osmId || d.id);
         if (m) {
           m.openPopup();
@@ -501,7 +512,6 @@ async function toggleFavorite(placeId) {
       await setDoc(favRef, { createdAt: serverTimestamp() });
     }
   } catch (err) {
-    // Откат при ошибке
     if (wasFav) favoritesSet.add(placeId); else favoritesSet.delete(placeId);
     updateFavoritesBadge();
     applyFilters();
@@ -517,7 +527,6 @@ async function toggleFavoriteOSM(osmId, data) {
   const favRef = doc(db, 'users', currentUser.uid, 'favorites_osm', osmId);
   const wasFav = favoritesOsmSet.has(osmId);
 
-  // Оптимистичное обновление UI
   if (wasFav) favoritesOsmSet.delete(osmId); else favoritesOsmSet.add(osmId);
   updateFavoritesBadge();
   applyFiltersOSM();
@@ -587,6 +596,50 @@ function subscribeFavoritesOSM() {
   });
 }
 
+// OSM MODERATION
+function getOsmStatusColor(status) {
+  switch (status) {
+    case 'verified': return '#2ecc71'; // green
+    case 'flagged': return '#ff8a00';  // orange
+    case 'hidden':  return '#888888';  // gray (но мы его скрываем)
+    default:        return '#4ea0ff';  // blue default
+  }
+}
+function humanOsmStatus(status) {
+  switch (status) {
+    case 'verified': return 'подтверждён';
+    case 'flagged': return 'помечен';
+    case 'hidden':  return 'скрыт';
+    default:        return 'видим';
+  }
+}
+async function setOsmModeration(osmId, status, note) {
+  if (!currentUser || !isAdmin) {
+    alert('Недостаточно прав для модерации OSM');
+    return;
+  }
+  const ref = doc(db, 'osm_moderation', osmId);
+  const payload = {
+    status,
+    updatedAt: serverTimestamp(),
+    updatedBy: currentUser.uid,
+    updatedByName: currentUser.displayName || ''
+  };
+  if (typeof note === 'string') payload.note = note;
+  await setDoc(ref, payload, { merge: true });
+}
+function subscribeOsmModeration() {
+  if (unsubOsmModeration) unsubOsmModeration();
+  const col = collection(db, 'osm_moderation');
+  unsubOsmModeration = onSnapshot(col, (snap) => {
+    osmModerationMap.clear();
+    snap.forEach(d => osmModerationMap.set(d.id, d.data()));
+    // обновляем отображение: скрыть/покрасить/обновить подписи
+    applyFiltersOSM();
+  });
+}
+subscribeOsmModeration();
+
 // Auth UI
 loginBtn?.addEventListener('click', async () => {
   const provider = new GoogleAuthProvider();
@@ -596,6 +649,7 @@ logoutBtn?.addEventListener('click', () => signOut(auth));
 
 async function loadAdminStatus(uid) {
   try {
+    // Читаем документ config/admins (uids: string[])
     const conf = await getDoc(doc(db, 'config', 'admins'));
     const uids = conf.exists() ? (conf.data().uids || []) : [];
     return uids.includes(uid) || FALLBACK_ADMIN_UIDS.includes(uid);
@@ -839,13 +893,30 @@ async function fetchOSMByView() {
       const lng = el.lon || el.center?.lon;
       if (!lat || !lng) return;
 
+      // применим модерацию: скрытые не показываем
+      const mod = osmModerationMap.get(osmId);
+      if (mod?.status === 'hidden') return;
+
       const name = el.tags?.name || el.tags?.["name:ru"] || 'OSM: объект без имени';
       const tags = el.tags || {};
 
       const favTxt = favoritesOsmSet.has(osmId) ? '★ Убрать из избранного' : '☆ В избранное';
       const tagsHtml = Object.entries(tags).map(([k,v])=>`${k}=${v}`).slice(0,12).join('<br/>');
 
-      const marker = L.marker([lat, lng], { icon: makeDivIcon('#4ea0ff') })
+      const color = getOsmStatusColor(mod?.status);
+      const statusText = humanOsmStatus(mod?.status);
+
+      const adminControls = isAdmin ? `
+        <div class="osm-mod-controls" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+          <span>Статус: <b class="osm-mod-status">${statusText}</b></span>
+          <button type="button" class="osm-mod-verify">✅ Подтвердить</button>
+          <button type="button" class="osm-mod-flag">⚠️ Пометить</button>
+          <button type="button" class="osm-mod-hide">${mod?.status === 'hidden' ? 'Показать' : 'Скрыть'}</button>
+          <button type="button" class="osm-mod-note">✎ Заметка</button>
+        </div>
+      ` : '';
+
+      const marker = L.marker([lat, lng], { icon: makeDivIcon(color) })
         .bindPopup(`
           <b>${name}</b><br/>
           <small>из OSM/Overpass</small><br/>
@@ -854,6 +925,7 @@ async function fetchOSMByView() {
             <button type="button" class="osm-route">Маршрут</button>
             <button type="button" class="osm-fav" data-id="${osmId}">${favTxt}</button>
           </div>
+          ${adminControls}
         `)
         .addTo(osmLayer);
 
@@ -866,6 +938,25 @@ async function fetchOSMByView() {
         node.querySelector('.osm-fav').addEventListener('click', () => {
           toggleFavoriteOSM(osmId, { name, lat, lng, type, tags });
         });
+
+        if (isAdmin) {
+          const v = node.querySelector('.osm-mod-verify');
+          const f = node.querySelector('.osm-mod-flag');
+          const h = node.querySelector('.osm-mod-hide');
+          const n = node.querySelector('.osm-mod-note');
+          v?.addEventListener('click', () => setOsmModeration(osmId, 'verified'));
+          f?.addEventListener('click', () => setOsmModeration(osmId, 'flagged'));
+          h?.addEventListener('click', () => {
+            const curr = osmModerationMap.get(osmId)?.status;
+            const next = curr === 'hidden' ? 'visible' : 'hidden';
+            setOsmModeration(osmId, next);
+          });
+          n?.addEventListener('click', async () => {
+            const currNote = osmModerationMap.get(osmId)?.note || '';
+            const note = prompt('Заметка модерации (не обязательно):', currNote);
+            if (note !== null) await setOsmModeration(osmId, osmModerationMap.get(osmId)?.status || 'visible', note);
+          });
+        }
       });
     });
 
