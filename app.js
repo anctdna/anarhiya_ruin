@@ -46,7 +46,7 @@ const onlyFavorites = document.getElementById('onlyFavorites');
 const searchInput = document.getElementById('searchInput');
 const placesList = document.getElementById('placesList');
 
-// Favorites UI
+// Favorites UI (по желанию — модалка избранного)
 const openFavoritesBtn = document.getElementById('openFavorites');
 const favoritesModal = document.getElementById('favoritesModal');
 const closeFavoritesBtn = document.getElementById('closeFavorites');
@@ -65,18 +65,20 @@ let unsubOsmModeration = null;
 
 let clearRouteControl;
 
-const markersMap = new Map(); // placeId -> marker (наши)
-const favoritesSet = new Set(); // placeId
-const favoritesOsmSet = new Set(); // "node-123" | "way-456"
-const osmMarkersMap = new Map(); // osmId -> marker (динамические OSM)
-const favoritePlacesCache = new Map(); // placeId -> data|null
-const favoritesOsmMap = new Map();     // osmId -> fav data
+const markersMap = new Map();            // placeId -> marker (наши)
+const favoritesSet = new Set();          // placeId
+const favoritesOsmSet = new Set();       // osmId ("node-123"|"way-456")
+const osmMarkersMap = new Map();         // osmId -> marker (динамические OSM)
+
+const favoritePlacesCache = new Map();   // placeId -> data|null
+const favoritesOsmMap = new Map();       // osmId -> fav data
 
 // OSM moderation
-const osmModerationMap = new Map(); // osmId -> { status, note, overrides, lat, lng, baseName, type, tagsSnapshot, updatedAt... }
+const osmModerationMap = new Map();      // osmId -> { status, note, overrides, lat, lng, baseName, type, tagsSnapshot, ... }
+const verifiedHydrateInFlight = new Set(); // чтобы не дублировать точечные запросы
 
 // Одобренные OSM всегда на карте
-let osmVerifiedLayer;                     // всегда добавлен
+let osmVerifiedLayer;                     // всегда добавлен на карту
 const osmVerifiedMarkersMap = new Map();  // osmId -> marker
 
 let map, routingControl, placesLayer, osmLayer, tempAddMarker = null;
@@ -109,7 +111,7 @@ function initMap() {
   tile.addTo(map);
 
   placesLayer = L.layerGroup().addTo(map);
-  osmLayer = L.layerGroup();                // динамические OSM (по тумблеру)
+  osmLayer = L.layerGroup();                 // динамические OSM (по тумблеру)
   osmVerifiedLayer = L.layerGroup().addTo(map); // verified OSM (всегда на карте)
 
   // Добавление по ПКМ
@@ -183,7 +185,7 @@ function initMap() {
         map.removeLayer(osmLayer);
         osmLayer.clearLayers();
         osmMarkersMap.clear();
-        renderUnifiedList(); // обновим общий список
+        renderUnifiedList();
       }
     });
   }
@@ -204,10 +206,10 @@ function parseLoot(str) {
 // ---- Наши места ----
 function placeMatchesFilters(place) {
   const byAccess = !filterAccess?.value || place.access === filterAccess.value;
-  const bySec = !filterSecurity?.value || place.security === filterSecurity.value;
-  const queryText = (searchInput?.value || '').toLowerCase();
-  const bySearch = !queryText || (place.name?.toLowerCase().includes(queryText) || place.description?.toLowerCase().includes(queryText));
-  const byFav = !onlyFavorites?.checked || favoritesSet.has(place.id);
+  const bySec    = !filterSecurity?.value || place.security === filterSecurity.value;
+  const q        = (searchInput?.value || '').toLowerCase();
+  const bySearch = !q || (place.name?.toLowerCase().includes(q) || place.description?.toLowerCase().includes(q));
+  const byFav    = !onlyFavorites?.checked || favoritesSet.has(place.id);
   return byAccess && bySec && bySearch && byFav;
 }
 function renderPlaceItem(place) {
@@ -215,9 +217,9 @@ function renderPlaceItem(place) {
   el.className = 'place-item';
   el.dataset.id = place.id;
 
-  const statusBadge = place.status === 'approved' ? '<span class="badge approved">одобрено</span>' :
-                      place.status === 'pending' ? '<span class="badge pending">на модерации</span>' :
-                      '<span class="badge rejected">отклонено</span>';
+  const statusBadge = place.status === 'approved' ? '<span class="badge approved">одобрено</span>'
+                    : place.status === 'pending'  ? '<span class="badge pending">на модерации</span>'
+                    : '<span class="badge rejected">отклонено</span>';
 
   const lootText = (place.loot && place.loot.length) ? ` • лут: ${place.loot.join(', ')}` : '';
   el.innerHTML = `
@@ -277,10 +279,9 @@ function upsertMarker(place) {
   applyFiltersToMarker(marker);
 }
 function applyFilters() {
-  // Маркеры "наших"
   markersMap.forEach(marker => applyFiltersToMarker(marker));
   refreshOpenPopupsFavoritesUI();
-  renderUnifiedList(); // общий список
+  renderUnifiedList();
 }
 function applyFiltersToMarker(marker) {
   const p = marker._placeData;
@@ -290,7 +291,7 @@ function applyFiltersToMarker(marker) {
   else { placesLayer.removeLayer(marker); }
 }
 
-// ---- Favorites (places) UI helpers ----
+// ---- Favorites (places) ----
 function refreshOpenPopupsFavoritesUI() {
   document.querySelectorAll('.leaflet-popup .pm-fav').forEach(btn => {
     const id = btn.dataset.id;
@@ -310,7 +311,7 @@ function getPlaceDataById(id) {
   return favoritePlacesCache.get(id) || null;
 }
 
-// ---- Favorites modal (без изменений логики) ----
+// ---- Favorites modal (опционально) ----
 function openFavorites() { if (!currentUser) return alert('Войдите, чтобы видеть избранное'); favoritesModal?.classList.remove('hidden'); renderFavoritesPanel(); }
 function closeFavorites() { favoritesModal?.classList.add('hidden'); }
 openFavoritesBtn?.addEventListener('click', openFavorites);
@@ -387,7 +388,6 @@ function renderFavoritesPanel() {
             if (toggleOSM && !toggleOSM.checked) { toggleOSM.checked = true; toggleOSM.dispatchEvent(new Event('change')); }
             m.openPopup();
           } else {
-            // временный
             const temp = L.marker([d.lat, d.lng], { icon: makeDivIcon('#4ea0ff') })
               .bindPopup(`<b>${name}</b><br/><small>из избранного OSM</small>`)
               .addTo(osmVerifiedLayer)
@@ -406,7 +406,7 @@ function renderFavoritesPanel() {
   updateFavoritesBadge();
 }
 
-// Favorites actions
+// ---- Favorites actions ----
 async function toggleFavorite(placeId) {
   if (!currentUser) { alert('Войдите, чтобы использовать избранное'); return; }
   const favRef = doc(db, 'users', currentUser.uid, 'favorites', placeId);
@@ -497,7 +497,6 @@ onAuthStateChanged(auth, async (user) => {
     subscribeData();
     subscribeFavorites();
     subscribeFavoritesOSM();
-    subscribeOsmModeration();
     updateFavoritesBadge();
     renderUnifiedList();
   } else {
@@ -650,8 +649,7 @@ async function setOsmModeration(osmId, status, note, meta) {
       if (typeof meta.lat === 'number') payload.lat = meta.lat;
       if (typeof meta.lng === 'number') payload.lng = meta.lng;
       if (meta.type) payload.type = meta.type;
-      if (meta.baseName) payload.baseName = meta.baseName;
-      else if (meta.name) payload.baseName = meta.name;
+      if (meta.baseName) payload.baseName = meta.baseName; else if (meta.name) payload.baseName = meta.name;
       if (meta.tags) payload.tagsSnapshot = meta.tags;
     }
     const prev = osmModerationMap.get(osmId) || {};
@@ -675,27 +673,100 @@ async function saveOsmOverrides(osmId, overrides) {
 async function submitOsmReport(osmId, type, data = {}) {
   if (!currentUser) { alert('Войдите, чтобы отправлять жалобы/заметки'); return; }
   try {
-    await addDoc(collection(db, 'osm_reports'), {
-      osmId, type, data, createdAt: serverTimestamp(), createdBy: currentUser.uid, createdByName: currentUser.displayName || ''
-    });
+    await addDoc(collection(db, 'osm_reports'), { osmId, type, data, createdAt: serverTimestamp(), createdBy: currentUser.uid, createdByName: currentUser.displayName || '' });
     alert(type === 'suggestion' ? 'Правка отправлена на модерацию' : 'Отправлено');
   } catch (e) { alert('Не удалось отправить: ' + e.message); }
 }
-function ensureVerifiedMarkerFromDoc(osmId, d) {
-  const lat = d.lat, lng = d.lng;
-  if (typeof lat !== 'number' || typeof lng !== 'number') return;
-  const baseName = d.baseName || (d.overrides?.name) || 'OSM: объект без имени';
-  const type = d.type || 'node';
-  const tags = d.tagsSnapshot || {};
+
+// Точечный Overpass по id (для гидрации verified без координат)
+function parseOsmId(osmId) {
+  const [type, idStr] = (osmId || '').split('-');
+  const id = Number(idStr);
+  if (!['node','way'].includes(type) || !Number.isFinite(id)) return null;
+  return { type, id };
+}
+async function fetchOsmById(osmId) {
+  const p = parseOsmId(osmId);
+  if (!p) return null;
+  const query = `
+    [out:json][timeout:25];
+    ${p.type}(${p.id});
+    out center tags;
+  `;
+  const res = await fetch('https://overpass-api.de/api/interpreter', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+    body: new URLSearchParams({ data: query })
+  });
+  const data = await res.json();
+  const el = (data.elements || [])[0];
+  if (!el) return null;
+  const lat = el.lat ?? el.center?.lat;
+  const lng = el.lon ?? el.center?.lon;
+  if (typeof lat !== 'number' || typeof lng !== 'number') return null;
+  const name = el.tags?.name || el.tags?.['name:ru'] || 'OSM: объект без имени';
+  const tags = el.tags || {};
+  return { lat, lng, name, type: p.type, tags };
+}
+async function hydrateVerifiedFromOverpass(osmId) {
+  if (verifiedHydrateInFlight.has(osmId)) return;
+  verifiedHydrateInFlight.add(osmId);
+  try {
+    const el = await fetchOsmById(osmId);
+    if (el) {
+      // сохраняем координаты в документ только если админ
+      if (isAdmin && currentUser) {
+        await setDoc(doc(db, 'osm_moderation', osmId), {
+          lat: el.lat, lng: el.lng, type: el.type, baseName: el.name, tagsSnapshot: el.tags
+        }, { merge: true });
+      }
+      // при любом раскладе — отрисуем локально
+      ensureVerifiedMarkerFromDoc(osmId, { status: 'verified', lat: el.lat, lng: el.lng, baseName: el.name, type: el.type, tagsSnapshot: el.tags });
+      applyFiltersOSM(); renderUnifiedList();
+    }
+  } catch (e) {
+    console.warn('hydrateVerifiedFromOverpass error', e);
+  } finally {
+    verifiedHydrateInFlight.delete(osmId);
+  }
+}
+async function ensureVerifiedMarkerFromDoc(osmId, d) {
+  let lat = d?.lat, lng = d?.lng, type = d?.type, baseName = d?.baseName, tags = d?.tagsSnapshot;
+
+  if (!(typeof lat === 'number' && typeof lng === 'number')) {
+    // попробуем взять координаты из динамического маркера
+    const mdyn = osmMarkersMap.get(osmId);
+    if (mdyn && mdyn._osmData) {
+      const x = mdyn._osmData;
+      lat = x.lat; lng = x.lng; type = x.type; baseName = x.baseName; tags = x.tags;
+      // админ — сохраним в документ
+      if (isAdmin && currentUser) {
+        await setDoc(doc(db, 'osm_moderation', osmId), { lat, lng, type, baseName, tagsSnapshot: tags }, { merge: true });
+      }
+    } else {
+      // точечный запрос к Overpass (без записи, если не админ)
+      await hydrateVerifiedFromOverpass(osmId);
+      return;
+    }
+  }
+
+  const markerData = {
+    osmId,
+    baseName: baseName || (d?.overrides?.name) || 'OSM: объект без имени',
+    lat, lng,
+    type: type || 'node',
+    tags: tags || {}
+  };
+
   let marker = osmVerifiedMarkersMap.get(osmId);
   if (!marker) {
-    marker = L.marker([lat, lng], { icon: makeDivIcon(getOsmStatusColor(d.status)) }).addTo(osmVerifiedLayer);
+    marker = L.marker([lat, lng], { icon: makeDivIcon(getOsmStatusColor(d?.status)) }).addTo(osmVerifiedLayer);
     osmVerifiedMarkersMap.set(osmId, marker);
   } else {
     marker.setLatLng([lat, lng]);
-    marker.setIcon(makeDivIcon(getOsmStatusColor(d.status)));
+    marker.setIcon(makeDivIcon(getOsmStatusColor(d?.status)));
   }
-  marker._osmData = { osmId, baseName, lat, lng, type, tags };
+  marker._osmData = markerData;
   renderOsmPopup(marker);
 }
 function removeVerifiedMarker(osmId) {
@@ -721,9 +792,9 @@ function subscribeOsmModeration() {
     applyFiltersOSM(); renderUnifiedList();
   });
 }
-subscribeOsmModeration();
+subscribeOsmModeration(); // читать может любой
 
-// ---- OSM popups (общие для verified и динамических) ----
+// ---- OSM попапы ----
 function renderOsmPopup(marker) {
   const d = marker._osmData; // {osmId, baseName, lat, lng, type, tags}
   const mod = osmModerationMap.get(d.osmId) || {};
@@ -803,7 +874,6 @@ function renderOsmPopup(marker) {
   marker.on('popupopen', () => {
     const node = marker.getPopup().getElement();
 
-    // поля правок
     const nameEl = node.querySelector('.osm-edit-name');
     const accessEl = node.querySelector('.osm-edit-access');
     const secEl = node.querySelector('.osm-edit-security');
@@ -814,11 +884,9 @@ function renderOsmPopup(marker) {
     secEl.value = (mod.overrides?.security) || '';
     lootEl.value = Array.isArray(mod.overrides?.loot) ? mod.overrides.loot.join(', ') : '';
 
-    // общие кнопки
     node.querySelector('.osm-route').addEventListener('click', ()=> startRoutingTo([d.lat, d.lng]));
     node.querySelector('.osm-fav').addEventListener('click', () => toggleFavoriteOSM(d.osmId, { name: displayName, lat: d.lat, lng: d.lng, type: d.type, tags: d.tags }));
 
-    // репорты (всем)
     node.querySelector('.osm-report-flag').addEventListener('click', async () => {
       if (!currentUser) return alert('Войдите, чтобы отправлять жалобы');
       const reason = prompt('Почему объект спорный? (необязательно)') || '';
@@ -830,7 +898,6 @@ function renderOsmPopup(marker) {
       if (note.trim()) await submitOsmReport(d.osmId, 'note', { note });
     });
 
-    // сохранение правок
     node.querySelector('.osm-edit-save').addEventListener('click', async () => {
       const fields = {
         name: nameEl.value.trim().slice(0, 120) || '',
@@ -851,7 +918,6 @@ function renderOsmPopup(marker) {
       }
     });
 
-    // модераторские кнопки
     if (isAdmin) {
       const v = node.querySelector('.osm-mod-verify');
       const f = node.querySelector('.osm-mod-flag');
@@ -876,30 +942,21 @@ function renderOsmPopup(marker) {
   });
 }
 
-// ---- ЕДИНЫЙ СПИСОК В САЙДБАРЕ ----
+// ---- ЕДИНЫЙ СПИСОК ----
 function itemMatchesFilters(item) {
-  const queryText = (searchInput?.value || '').toLowerCase();
-  const bySearch = !queryText || (item.searchText || '').includes(queryText);
-
+  const q = (searchInput?.value || '').toLowerCase();
+  const bySearch = !q || (item.searchText || '').includes(q);
   const byAccess = !filterAccess?.value || (item.access && item.access === filterAccess.value);
-  const bySec = !filterSecurity?.value || (item.security && item.security === filterSecurity.value);
-
-  // Избранное
-  const byFav = !onlyFavorites?.checked || (
-    (item.kind === 'place' && favoritesSet.has(item.id)) ||
-    (item.kind === 'osm' && favoritesOsmSet.has(item.id))
-  );
-
+  const bySec    = !filterSecurity?.value || (item.security && item.security === filterSecurity.value);
+  const byFav    = !onlyFavorites?.checked || ((item.kind === 'place' && favoritesSet.has(item.id)) || (item.kind === 'osm' && favoritesOsmSet.has(item.id)));
   return bySearch && byAccess && bySec && byFav;
 }
-
 function collectListItems() {
   const items = [];
 
-  // Наши места
-  markersMap.forEach((m, id) => {
-    const p = m._placeData;
-    if (!p) return;
+  // наши места
+  markersMap.forEach((m) => {
+    const p = m._placeData; if (!p) return;
     const it = {
       kind: 'place',
       id: p.id,
@@ -910,12 +967,12 @@ function collectListItems() {
       status: p.status,
       lat: p.lat, lng: p.lng,
       createdAt: p.createdAt?.seconds || 0,
-      searchText: `${(p.name || '').toLowerCase()} ${(p.description || '').toLowerCase()}`
+      searchText: `${(p.name||'').toLowerCase()} ${(p.description||'').toLowerCase()}`
     };
     if (itemMatchesFilters(it)) items.push(it);
   });
 
-  // Verified OSM — всегда
+  // verified OSM — всегда
   osmVerifiedMarkersMap.forEach((m, osmId) => {
     const d = m._osmData;
     const mod = osmModerationMap.get(osmId) || {};
@@ -935,7 +992,7 @@ function collectListItems() {
     if (itemMatchesFilters(it)) items.push(it);
   });
 
-  // Динамические OSM — если включён тумблер, и нет verified дубля, и не hidden
+  // динамические OSM (если включён тумблер, без дубля verified, не hidden)
   if (toggleOSM?.checked) {
     osmMarkersMap.forEach((m, osmId) => {
       if (osmVerifiedMarkersMap.has(osmId)) return;
@@ -959,20 +1016,17 @@ function collectListItems() {
     });
   }
 
-  // Сортировка: по времени (createdAt/updatedAt) убыв., затем по типу, затем по имени
+  // сортировка
   items.sort((a,b) => ((b.createdAt||b.updatedAt||0) - (a.createdAt||a.updatedAt||0)) || a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name, 'ru'));
-
   return items;
 }
-
 function renderOsmListItem(item) {
-  // item: {kind:'osm', id, name, access, security, loot[], status, lat, lng}
   const el = document.createElement('div');
-  el.className = 'place-item'; // тот же стиль
+  el.className = 'place-item';
   el.dataset.id = item.id;
 
   const statusBadge = item.status === 'verified' ? '<span class="badge approved">OSM • подтверждён</span>'
-                    : item.status === 'flagged' ? '<span class="badge pending">OSM • помечен</span>'
+                    : item.status === 'flagged'  ? '<span class="badge pending">OSM • помечен</span>'
                     : '<span class="badge">OSM</span>';
 
   const lootText = (item.loot && item.loot.length) ? ` • лут: ${item.loot.join(', ')}` : '';
@@ -989,12 +1043,9 @@ function renderOsmListItem(item) {
       <button type="button" data-action="note">Заметка</button>
     </div>
   `;
-
   el.querySelector('[data-action="show"]').addEventListener('click', () => showOsmOnMap(item));
   el.querySelector('[data-action="route"]').addEventListener('click', () => startRoutingTo([item.lat, item.lng]));
-  el.querySelector('[data-action="favorite"]').addEventListener('click', () => toggleFavoriteOSM(item.id, {
-    name: item.name, lat: item.lat, lng: item.lng, type: 'node', tags: {}
-  }));
+  el.querySelector('[data-action="favorite"]').addEventListener('click', () => toggleFavoriteOSM(item.id, { name: item.name, lat: item.lat, lng: item.lng, type: 'node', tags: {} }));
   el.querySelector('[data-action="flag"]').addEventListener('click', async () => {
     if (!currentUser) return alert('Войдите, чтобы отправлять жалобы');
     const reason = prompt('Почему объект спорный? (необязательно)') || '';
@@ -1008,9 +1059,7 @@ function renderOsmListItem(item) {
 
   return el;
 }
-
 function showOsmOnMap(item) {
-  // Пытаемся открыть verified -> динамический -> временный
   const mv = osmVerifiedMarkersMap.get(item.id);
   if (mv) {
     map.setView([item.lat, item.lng], 16);
@@ -1024,7 +1073,6 @@ function showOsmOnMap(item) {
     mdyn.openPopup();
     return;
   }
-  // временный
   map.setView([item.lat, item.lng], 16);
   const temp = L.marker([item.lat, item.lng], { icon: makeDivIcon('#4ea0ff') })
     .bindPopup(`<b>${item.name}</b><br/><small>OSM объект</small>`)
@@ -1032,38 +1080,33 @@ function showOsmOnMap(item) {
     .openPopup();
   setTimeout(() => { try { osmVerifiedLayer.removeLayer(temp); } catch(_) {} }, 8000);
 }
-
 function renderUnifiedList() {
   if (!placesList) return;
   placesList.innerHTML = '';
-
   const items = collectListItems();
   const frag = document.createDocumentFragment();
-
   items.forEach(item => {
     if (item.kind === 'place') {
-      const pMarker = markersMap.get(item.id);
-      const p = pMarker?._placeData;
+      const m = markersMap.get(item.id); const p = m?._placeData;
       if (p) frag.appendChild(renderPlaceItem(p));
     } else {
       frag.appendChild(renderOsmListItem(item));
     }
   });
-
   placesList.appendChild(frag);
 }
 
-// ---- Apply filters to OSM layers ----
+// ---- Применение фильтров к OSM ----
 function applyFiltersOSM() {
-  const queryText = (searchInput?.value || '').toLowerCase();
+  const q = (searchInput?.value || '').toLowerCase();
 
-  // Verified — всегда на карте
+  // verified — всегда
   osmVerifiedMarkersMap.forEach((marker, osmId) => {
     const d = marker._osmData;
     const mod = osmModerationMap.get(osmId) || {};
     const ov = mod.overrides || {};
-    const displayName = ov.name || d.baseName || '';
-    const matchesSearch = !queryText || displayName.toLowerCase().includes(queryText);
+    const name = ov.name || d.baseName || '';
+    const matchesSearch = !q || name.toLowerCase().includes(q);
     const matchesFav = !onlyFavorites?.checked || favoritesOsmSet.has(osmId);
     const notHidden = mod.status !== 'hidden';
     const visible = matchesSearch && matchesFav && notHidden;
@@ -1076,40 +1119,32 @@ function applyFiltersOSM() {
     const el = marker.getPopup()?.getElement();
     if (el) {
       const st = el.querySelector('.osm-mod-status'); if (st) st.textContent = humanOsmStatus(mod.status);
-      const title = el.querySelector('.osm-title'); if (title) title.textContent = displayName || 'OSM: объект без имени';
+      const title = el.querySelector('.osm-title');   if (title) title.textContent = name || 'OSM: объект без имени';
       const hideBtn = el.querySelector('.osm-mod-hide'); if (hideBtn) hideBtn.textContent = (mod.status === 'hidden') ? 'Показать' : 'Скрыть';
     }
   });
 
-  // Динамические — зависят от тумблера и отсутствия verified дубля
+  // динамические — зависят от тумблера и отсутствия verified дубля
   osmMarkersMap.forEach((marker, osmId) => {
     const d = marker._osmData;
     const mod = osmModerationMap.get(osmId) || {};
     const ov = mod.overrides || {};
-    const displayName = ov.name || d.baseName || '';
-    const matchesSearch = !queryText || displayName.toLowerCase().includes(queryText);
+    const name = ov.name || d.baseName || '';
+    const matchesSearch = !q || name.toLowerCase().includes(q);
     const matchesFav = !onlyFavorites?.checked || favoritesOsmSet.has(osmId);
     const notHidden = mod.status !== 'hidden';
     const visible = matchesSearch && matchesFav && notHidden;
 
     marker.setIcon(makeDivIcon(getOsmStatusColor(mod.status)));
+    if (osmVerifiedMarkersMap.has(osmId)) { marker.remove(); return; }
 
-    if (osmVerifiedMarkersMap.has(osmId)) {
-      marker.remove();
-      return;
-    }
-
-    if (visible && toggleOSM?.checked) {
-      if (!osmLayer.hasLayer(marker)) marker.addTo(osmLayer);
-      marker.getElement()?.classList.remove('hidden');
-    } else {
-      osmLayer.removeLayer(marker);
-    }
+    if (visible && toggleOSM?.checked) { if (!osmLayer.hasLayer(marker)) marker.addTo(osmLayer); marker.getElement()?.classList.remove('hidden'); }
+    else { osmLayer.removeLayer(marker); }
 
     const el = marker.getPopup()?.getElement();
     if (el) {
       const st = el.querySelector('.osm-mod-status'); if (st) st.textContent = humanOsmStatus(mod.status);
-      const title = el.querySelector('.osm-title'); if (title) title.textContent = displayName || 'OSM: объект без имени';
+      const title = el.querySelector('.osm-title');   if (title) title.textContent = name || 'OSM: объект без имени';
       const hideBtn = el.querySelector('.osm-mod-hide'); if (hideBtn) hideBtn.textContent = (mod.status === 'hidden') ? 'Показать' : 'Скрыть';
     }
   });
@@ -1118,7 +1153,7 @@ function applyFiltersOSM() {
   renderUnifiedList();
 }
 
-// ---- Overpass ----
+// ---- Overpass (по области) ----
 let osmFetchTimer = null;
 function throttleFetchOSM() { if (osmFetchTimer) clearTimeout(osmFetchTimer); osmFetchTimer = setTimeout(fetchOSMByView, 600); }
 async function fetchOSMByView() {
@@ -1164,7 +1199,6 @@ async function fetchOSMByView() {
       const mod = osmModerationMap.get(osmId);
       if (mod?.status === 'hidden') return;
 
-      // Если уже есть verified-маркер — актуализируем его и не создаём динамический
       if (osmVerifiedMarkersMap.has(osmId)) {
         const mv = osmVerifiedMarkersMap.get(osmId);
         mv._osmData = { osmId, baseName, lat, lng, type, tags };
@@ -1172,15 +1206,13 @@ async function fetchOSMByView() {
         return;
       }
 
-      const marker = L.marker([lat, lng], { icon: makeDivIcon(getOsmStatusColor(mod?.status)) })
-        .addTo(osmLayer);
-
+      const marker = L.marker([lat, lng], { icon: makeDivIcon(getOsmStatusColor(mod?.status)) }).addTo(osmLayer);
       marker._osmData = { osmId, baseName, lat, lng, type, tags };
       osmMarkersMap.set(osmId, marker);
       renderOsmPopup(marker);
     });
 
-    applyFiltersOSM(); // и перерисует unified list
+    applyFiltersOSM();
   } catch (e) {
     console.warn('Overpass error', e);
   }
