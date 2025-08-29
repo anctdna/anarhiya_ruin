@@ -46,19 +46,17 @@ const onlyFavorites = document.getElementById('onlyFavorites');
 const searchInput = document.getElementById('searchInput');
 const placesList = document.getElementById('placesList');
 
-// Favorites UI (опционально — модалка)
+// Favorites UI (модалка)
 const openFavoritesBtn = document.getElementById('openFavorites');
 const favoritesModal = document.getElementById('favoritesModal');
 const closeFavoritesBtn = document.getElementById('closeFavorites');
 const favoritesPlacesListEl = document.getElementById('favoritesPlacesList');
 const favoritesOsmListEl = document.getElementById('favoritesOsmList');
+const favoritesCountBadge = document.getElementById('favoritesCount');
 
 // ---- Favorites modal ----
 function openFavorites() {
-  if (!currentUser) {
-    alert('Войдите, чтобы видеть избранное');
-    return;
-  }
+  if (!currentUser) { alert('Войдите, чтобы видеть избранное'); return; }
   if (!favoritesModal) return;
   favoritesModal.classList.remove('hidden');
   renderFavoritesPanel();
@@ -67,39 +65,37 @@ function closeFavorites() {
   if (!favoritesModal) return;
   favoritesModal.classList.add('hidden');
 }
-
-// Навешиваем обработчики
 if (openFavoritesBtn) openFavoritesBtn.addEventListener('click', openFavorites);
 if (closeFavoritesBtn) closeFavoritesBtn.addEventListener('click', closeFavorites);
 
-// Вспомогательное получение данных места
+// Вспомогательное получение данных места для избранного
 function getFavPlaceData(id) {
   if (typeof getPlaceDataById === 'function') return getPlaceDataById(id);
-  var m = markersMap.get(id);
+  const m = markersMap.get(id);
   if (m && m._placeData) return m._placeData;
   return favoritePlacesCache.get ? (favoritePlacesCache.get(id) || null) : null;
 }
 
-// Рендер модалки
+// Рендер модалки избранного
 function renderFavoritesPanel() {
   if (!favoritesPlacesListEl || !favoritesOsmListEl) return;
 
   // Места
   favoritesPlacesListEl.innerHTML = '';
-  var placeIds = Array.from(favoritesSet);
+  const placeIds = Array.from(favoritesSet);
   if (placeIds.length === 0) {
     favoritesPlacesListEl.innerHTML = '<div class="muted">Пусто</div>';
   } else {
-    var fragP = document.createDocumentFragment();
+    const fragP = document.createDocumentFragment();
     placeIds.forEach(function(id) {
-      var p = getFavPlaceData(id);
-      var el = document.createElement('div');
+      const p = getFavPlaceData(id);
+      const el = document.createElement('div');
       el.className = 'fav-item';
       if (!p) {
         el.innerHTML = ''+
           '<div class="title">[объект недоступен]</div>'+
           '<div class="actions"><button type="button" data-action="remove">Убрать</button></div>';
-        var rm = el.querySelector('[data-action="remove"]');
+        const rm = el.querySelector('[data-action="remove"]');
         if (rm) rm.addEventListener('click', function(){ toggleFavorite(id); });
       } else {
         el.innerHTML = ''+
@@ -110,19 +106,19 @@ function renderFavoritesPanel() {
             '<button type="button" data-action="route">Маршрут</button>'+
             '<button type="button" data-action="remove">Убрать</button>'+
           '</div>';
-        var sh = el.querySelector('[data-action="show"]');
+        const sh = el.querySelector('[data-action="show"]');
         if (sh) sh.addEventListener('click', function(){
           map.setView([p.lat, p.lng], 16);
-          var m = markersMap.get(id);
+          const m = markersMap.get(id);
           if (m && m.openPopup) m.openPopup();
           closeFavorites();
         });
-        var rt = el.querySelector('[data-action="route"]');
+        const rt = el.querySelector('[data-action="route"]');
         if (rt) rt.addEventListener('click', function(){
           startRoutingTo([p.lat, p.lng]);
           closeFavorites();
         });
-        var rm2 = el.querySelector('[data-action="remove"]');
+        const rm2 = el.querySelector('[data-action="remove"]');
         if (rm2) rm2.addEventListener('click', function(){ toggleFavorite(id); });
       }
       fragP.appendChild(el);
@@ -132,36 +128,35 @@ function renderFavoritesPanel() {
 
   // OSM
   favoritesOsmListEl.innerHTML = '';
-  var osmItems = Array.from(favoritesOsmMap.values ? favoritesOsmMap.values() : []).map(function(v){return v;});
+  const osmItems = Array.from(favoritesOsmMap.values ? favoritesOsmMap.values() : []);
   if (osmItems.length === 0) {
     favoritesOsmListEl.innerHTML = '<div class="muted">Пусто</div>';
   } else {
-    var fragO = document.createDocumentFragment();
+    const fragO = document.createDocumentFragment();
     osmItems.forEach(function(d) {
-      var lat = d.data ? d.data.lat : d.lat;
-      var lng = d.data ? d.data.lng : d.lng;
-      var name = (d.data ? d.data.name : d.name) || 'OSM объект';
-      var osmId = d.id || d.osmId;
+      const lat = d.data ? d.data.lat : d.lat;
+      const lng = d.data ? d.data.lng : d.lng;
+      const name = (d.data ? d.data.name : d.name) || 'OSM объект';
+      const osmId = d.id || d.osmId;
 
-      var el = document.createElement('div');
+      const el = document.createElement('div');
       el.className = 'fav-item';
       el.innerHTML = ''+
         '<div class="title">'+name+'</div>'+
-        '<div class="meta">'+((d.data?d.data.type:d.type)||'').toString().toUpperCase()+' • '+(+lat).toFixed(5)+', '+(+lng).toFixed(5)+'</div>'+
+        '<div class="meta">'+(((d.data?d.data.type:d.type)||'')+'').toUpperCase()+' • '+(+lat).toFixed(5)+', '+(+lng).toFixed(5)+'</div>'+
         '<div class="actions">'+
           '<button type="button" data-action="show">Показать</button>'+
           '<button type="button" data-action="route">Маршрут</button>'+
           '<button type="button" data-action="remove">Убрать</button>'+
         '</div>';
 
-      var sh = el.querySelector('[data-action="show"]');
+      const sh = el.querySelector('[data-action="show"]');
       if (sh) sh.addEventListener('click', function(){
         map.setView([lat, lng], 16);
-        // пробуем открыть verified, затем dynamic, иначе временный маркер
-        var mv = osmVerifiedMarkersMap.get(osmId);
+        const mv = osmVerifiedMarkersMap.get(osmId);
         if (mv && mv.openPopup) mv.openPopup();
         else {
-          var md = osmMarkersMap.get(osmId);
+          const md = osmMarkersMap.get(osmId);
           if (md && md.openPopup) {
             if (toggleOSM && !toggleOSM.checked) {
               toggleOSM.checked = true;
@@ -169,7 +164,7 @@ function renderFavoritesPanel() {
             }
             md.openPopup();
           } else {
-            var temp = L.marker([lat, lng], { icon: makeDivIcon('#4ea0ff') })
+            const temp = L.marker([lat, lng], { icon: makeDivIcon('#4ea0ff') })
               .bindPopup('<b>'+name+'</b><br/><small>из избранного OSM</small>')
               .addTo(osmVerifiedLayer)
               .openPopup();
@@ -179,13 +174,13 @@ function renderFavoritesPanel() {
         closeFavorites();
       });
 
-      var rt = el.querySelector('[data-action="route"]');
+      const rt = el.querySelector('[data-action="route"]');
       if (rt) rt.addEventListener('click', function(){
         startRoutingTo([lat, lng]);
         closeFavorites();
       });
 
-      var rm = el.querySelector('[data-action="remove"]');
+      const rm = el.querySelector('[data-action="remove"]');
       if (rm) rm.addEventListener('click', function(){
         toggleFavoriteOSM(osmId, { name:name, lat:lat, lng:lng, type:(d.data?d.data.type:d.type)||'node', tags:(d.data?d.data.tags:d.tags)||{} });
       });
@@ -196,9 +191,7 @@ function renderFavoritesPanel() {
   }
 }
 
-const favoritesCountBadge = document.getElementById('favoritesCount');
-
-// State
+// ---------------------- State ----------------------
 let currentUser = null;
 let isAdmin = false;
 let unsubApproved = null;
@@ -215,7 +208,7 @@ const favoritesOsmSet = new Set();       // osmId ("node-123"|"way-456")
 const osmMarkersMap = new Map();         // osmId -> marker (динамические OSM)
 
 const favoritePlacesCache = new Map();   // placeId -> data|null
-const favoritesOsmMap = new Map();       // osmId -> fav data
+const favoritesOsmMap = new Map();       // osmId -> { id, data }
 
 // OSM moderation
 const osmModerationMap = new Map();      // osmId -> { status, note, overrides, lat, lng, baseName, type, tagsSnapshot, ... }
@@ -242,7 +235,7 @@ function parseLoot(str) {
 }
 function updateFavoritesBadge() {
   if (!favoritesCountBadge) return;
-  var total = favoritesSet.size + favoritesOsmSet.size;
+  const total = favoritesSet.size + favoritesOsmSet.size;
   favoritesCountBadge.textContent = total;
   favoritesCountBadge.style.display = total ? 'inline-block' : 'none';
 }
@@ -250,7 +243,7 @@ function updateFavoritesBadge() {
 // Map init
 function initMap() {
   map = L.map('map').setView([55.751244, 37.618423], 10);
-  var tile = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  const tile = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
   });
   tile.addTo(map);
@@ -271,7 +264,7 @@ function initMap() {
     } else {
       tempAddMarker = L.marker(e.latlng, { draggable: true }).addTo(map);
       tempAddMarker.on('dragend', function() {
-        var ll = tempAddMarker.getLatLng();
+        const ll = tempAddMarker.getLatLng();
         if (placeLat) placeLat.value = ll.lat.toFixed(6);
         if (placeLng) placeLng.value = ll.lng.toFixed(6);
       });
@@ -283,9 +276,9 @@ function initMap() {
 
   // Locate
   L.control.locate = function() {
-    var control = L.control({position: 'topleft'});
+    const control = L.control({position: 'topleft'});
     control.onAdd = function() {
-      var btn = L.DomUtil.create('a', 'leaflet-bar');
+      const btn = L.DomUtil.create('a', 'leaflet-bar');
       btn.href = '#';
       btn.title = 'Моё местоположение';
       btn.innerHTML = '📍';
@@ -295,7 +288,7 @@ function initMap() {
         ev.preventDefault();
         if (!navigator.geolocation) { alert('Геолокация недоступна'); return; }
         navigator.geolocation.getCurrentPosition(function(pos){
-          var latlng = [pos.coords.latitude, pos.coords.longitude];
+          const latlng = [pos.coords.latitude, pos.coords.longitude];
           map.setView(latlng, 14);
           L.circleMarker(latlng, {radius:6, color:'#00c389'}).addTo(map);
         }, function(){ alert('Не удалось получить геолокацию'); });
@@ -309,7 +302,7 @@ function initMap() {
   // Clear route control
   clearRouteControl = L.control({position:'topleft'});
   clearRouteControl.onAdd = function() {
-    var btn = L.DomUtil.create('a', 'leaflet-bar');
+    const btn = L.DomUtil.create('a', 'leaflet-bar');
     btn.href = '#';
     btn.title = 'Сбросить маршрут (Esc)';
     btn.innerHTML = '✖';
@@ -356,52 +349,52 @@ function clearRoute() {
 
 // Popupopen handler
 function onPopupOpen(e) {
-  var container = e && e.popup && e.popup.getElement ? e.popup.getElement() : null;
+  const container = e && e.popup && e.popup.getElement ? e.popup.getElement() : null;
   if (!container) return;
-  var src = e.popup._source;
+  const src = e.popup._source;
 
   // OSM
   if (src && src._osmData) {
-    var d = src._osmData;
-    var mod = osmModerationMap.get(d.osmId) || {};
-    var ov = mod.overrides || {};
+    const d = src._osmData;
+    const mod = osmModerationMap.get(d.osmId) || {};
+    const ov = mod.overrides || {};
 
-    var nameEl = container.querySelector('.osm-edit-name');
-    var accessEl = container.querySelector('.osm-edit-access');
-    var secEl = container.querySelector('.osm-edit-security');
-    var lootEl = container.querySelector('.osm-edit-loot');
+    const nameEl = container.querySelector('.osm-edit-name');
+    const accessEl = container.querySelector('.osm-edit-access');
+    const secEl = container.querySelector('.osm-edit-security');
+    const lootEl = container.querySelector('.osm-edit-loot');
     if (nameEl) nameEl.value = ov.name || d.baseName || '';
     if (accessEl) accessEl.value = ov.access || '';
     if (secEl) secEl.value = ov.security || '';
     if (lootEl) lootEl.value = Array.isArray(ov.loot) ? ov.loot.join(', ') : '';
 
-    var btn;
+    let btn;
     btn = container.querySelector('.osm-route'); if (btn) btn.addEventListener('click', function(ev){ ev.preventDefault(); startRoutingTo([d.lat, d.lng]); });
     btn = container.querySelector('.osm-fav'); if (btn) btn.addEventListener('click', function(ev){ ev.preventDefault(); toggleFavoriteOSM(d.osmId, { name: ov.name || d.baseName || '', lat: d.lat, lng: d.lng, type: d.type, tags: d.tags }); });
 
     btn = container.querySelector('.osm-report-flag'); if (btn) btn.addEventListener('click', async function(ev){
       ev.preventDefault();
       if (!currentUser) { alert('Войдите, чтобы отправлять жалобы'); return; }
-      var reason = prompt('Почему объект спорный? (необязательно)') || '';
+      const reason = prompt('Почему объект спорный? (необязательно)') || '';
       await submitOsmReport(d.osmId, 'flag', { reason: reason });
     });
     btn = container.querySelector('.osm-report-note'); if (btn) btn.addEventListener('click', async function(ev){
       ev.preventDefault();
       if (!currentUser) { alert('Войдите, чтобы отправлять заметки'); return; }
-      var note = prompt('Заметка (увидит модератор):', '') || '';
+      const note = prompt('Заметка (увидит модератор):', '') || '';
       if (note.trim()) await submitOsmReport(d.osmId, 'note', { note: note });
     });
 
     btn = container.querySelector('.osm-edit-save'); if (btn) btn.addEventListener('click', async function(ev){
       ev.preventDefault();
-      var fields = {
+      const fields = {
         name: (nameEl && nameEl.value ? nameEl.value : '').trim().slice(0,120),
         access: (accessEl && ACCESS_OPTIONS.indexOf(accessEl.value)>=0) ? accessEl.value : '',
         security: (secEl && SECURITY_OPTIONS.indexOf(secEl.value)>=0) ? secEl.value : '',
         loot: parseLoot(lootEl ? lootEl.value : '')
       };
       if (isAdmin) {
-        var overrides = {};
+        const overrides = {};
         if (fields.name) overrides.name = fields.name;
         if (fields.access) overrides.access = fields.access;
         if (fields.security) overrides.security = fields.security;
@@ -432,8 +425,8 @@ function onPopupOpen(e) {
       });
       btn = container.querySelector('.osm-mod-hide'); if (btn) btn.addEventListener('click', async function(ev){
         ev.preventDefault();
-        var curr = (osmModerationMap.get(d.osmId) || {}).status;
-        var next = curr === 'hidden' ? 'visible' : 'hidden';
+        const curr = (osmModerationMap.get(d.osmId) || {}).status;
+        const next = curr === 'hidden' ? 'visible' : 'hidden';
         await setOsmModeration(d.osmId, next, undefined, d);
         renderOsmPopup(src); src.openPopup();
       });
@@ -442,8 +435,8 @@ function onPopupOpen(e) {
 
   // Наше место — подстраховка
   if (src && src._placeData) {
-    var p = src._placeData;
-    var btn2;
+    const p = src._placeData;
+    let btn2;
     btn2 = container.querySelector('.pm-route'); if (btn2) btn2.addEventListener('click', function(ev){ ev.preventDefault(); startRoutingTo([p.lat, p.lng]); });
     btn2 = container.querySelector('.pm-fav'); if (btn2) btn2.addEventListener('click', function(ev){ ev.preventDefault(); toggleFavorite(p.id); });
     btn2 = container.querySelector('.pm-del'); if (btn2) btn2.addEventListener('click', function(ev){ ev.preventDefault(); deletePlace(p.id); });
@@ -452,21 +445,21 @@ function onPopupOpen(e) {
 
 // Places
 function placeMatchesFilters(place) {
-  var byAccess = !filterAccess || !filterAccess.value || place.access === filterAccess.value;
-  var bySec = !filterSecurity || !filterSecurity.value || place.security === filterSecurity.value;
-  var q = (searchInput && searchInput.value ? searchInput.value : '').toLowerCase();
-  var bySearch = !q || (place.name && place.name.toLowerCase().includes(q)) || (place.description && place.description.toLowerCase().includes(q));
-  var byFav = !onlyFavorites || !onlyFavorites.checked || favoritesSet.has(place.id);
+  const byAccess = !filterAccess || !filterAccess.value || place.access === filterAccess.value;
+  const bySec = !filterSecurity || !filterSecurity.value || place.security === filterSecurity.value;
+  const q = (searchInput && searchInput.value ? searchInput.value : '').toLowerCase();
+  const bySearch = !q || (place.name && place.name.toLowerCase().includes(q)) || (place.description && place.description.toLowerCase().includes(q));
+  const byFav = !onlyFavorites || !onlyFavorites.checked || favoritesSet.has(place.id);
   return byAccess && bySec && bySearch && byFav;
 }
 function renderPlaceItem(place) {
-  var el = document.createElement('div');
+  const el = document.createElement('div');
   el.className = 'place-item';
   el.dataset.id = place.id;
-  var statusBadge = place.status === 'approved' ? '<span class="badge approved">одобрено</span>' :
-                    place.status === 'pending'  ? '<span class="badge pending">на модерации</span>' :
-                                                   '<span class="badge rejected">отклонено</span>';
-  var lootText = (place.loot && place.loot.length) ? ' • лут: ' + place.loot.join(', ') : '';
+  const statusBadge = place.status === 'approved' ? '<span class="badge approved">одобрено</span>' :
+                      place.status === 'pending'  ? '<span class="badge pending">на модерации</span>' :
+                                                    '<span class="badge rejected">отклонено</span>';
+  const lootText = (place.loot && place.loot.length) ? ' • лут: ' + place.loot.join(', ') : '';
   el.innerHTML = ''+
     '<h4>'+place.name+' '+statusBadge+'</h4>'+
     '<div class="place-meta">'+(place.access||'')+' • охрана: '+(place.security||'')+lootText+'</div>'+
@@ -476,7 +469,7 @@ function renderPlaceItem(place) {
       '<button type="button" data-action="favorite">'+(favoritesSet.has(place.id)?'★ В избранном':'☆ В избранное')+'</button>'+
       ((currentUser && (place.createdBy === currentUser.uid || isAdmin)) ? '<button type="button" data-action="delete" class="danger">Удалить</button>' : '')+
     '</div>';
-  var b;
+  let b;
   b = el.querySelector('[data-action="fly"]'); if (b) b.addEventListener('click', function(){ map.setView([place.lat, place.lng], 16); });
   b = el.querySelector('[data-action="route"]'); if (b) b.addEventListener('click', function(){ startRoutingTo([place.lat, place.lng]); });
   b = el.querySelector('[data-action="favorite"]'); if (b) b.addEventListener('click', function(){ toggleFavorite(place.id); });
@@ -484,9 +477,9 @@ function renderPlaceItem(place) {
   return el;
 }
 function upsertMarker(place) {
-  var color = place.status === 'approved' ? '#ff3b3b' : (place.status === 'pending' ? '#ff8a00' : '#555');
-  var icon = makeDivIcon(color);
-  var marker = markersMap.get(place.id);
+  const color = place.status === 'approved' ? '#ff3b3b' : (place.status === 'pending' ? '#ff8a00' : '#555');
+  const icon = makeDivIcon(color);
+  let marker = markersMap.get(place.id);
   if (!marker) {
     marker = L.marker([place.lat, place.lng], { icon: icon }).addTo(placesLayer);
     markersMap.set(place.id, marker);
@@ -494,10 +487,10 @@ function upsertMarker(place) {
     marker.setLatLng([place.lat, place.lng]);
     marker.setIcon(icon);
   }
-  var favTxt = favoritesSet.has(place.id) ? '★ Убрать из избранного' : '☆ В избранное';
-  var photosHtml = (place.photos && place.photos.length)
+  const favTxt = favoritesSet.has(place.id) ? '★ Убрать из избранного' : '☆ В избранное';
+  const photosHtml = (place.photos && place.photos.length)
     ? '<div class="gallery">'+place.photos.map(function(u){return '<img src="'+u+'" loading="lazy" />';}).join('')+'</div>' : '';
-  var popupHtml = ''+
+  const popupHtml = ''+
     '<b>'+place.name+'</b><br/>'+
     '<small>'+(place.access||'')+' • охрана: '+(place.security||'')+'</small><br/>'+
     '<div>'+((place.description||'').replace(/\n/g,'<br/>'))+'</div>'+
@@ -513,10 +506,10 @@ function upsertMarker(place) {
   applyFiltersToMarker(marker);
 }
 function applyFiltersToMarker(marker) {
-  var p = marker._placeData;
+  const p = marker._placeData;
   if (!p) return;
-  var visible = placeMatchesFilters(p);
-  if (visible) { if (!placesLayer.hasLayer(marker)) marker.addTo(placesLayer); var el = marker.getElement(); if (el) el.classList.remove('hidden'); }
+  const visible = placeMatchesFilters(p);
+  if (visible) { if (!placesLayer.hasLayer(marker)) marker.addTo(placesLayer); const el = marker.getElement(); if (el) el.classList.remove('hidden'); }
   else { placesLayer.removeLayer(marker); }
 }
 function applyFilters() {
@@ -527,18 +520,18 @@ function applyFilters() {
 
 // Favorites (places)
 function refreshOpenPopupsFavoritesUI() {
-  var list = document.querySelectorAll('.leaflet-popup .pm-fav');
-  for (var i=0;i<list.length;i++) {
-    var btn = list[i];
-    var id = btn.dataset.id;
+  const list = document.querySelectorAll('.leaflet-popup .pm-fav');
+  for (let i=0;i<list.length;i++) {
+    const btn = list[i];
+    const id = btn.dataset.id;
     if (!id) continue;
     btn.textContent = favoritesSet.has(id) ? '★ Убрать из избранного' : '☆ В избранное';
   }
 }
 async function toggleFavorite(placeId) {
   if (!currentUser) { alert('Войдите, чтобы использовать избранное'); return; }
-  var favRef = doc(db, 'users', currentUser.uid, 'favorites', placeId);
-  var wasFav = favoritesSet.has(placeId);
+  const favRef = doc(db, 'users', currentUser.uid, 'favorites', placeId);
+  const wasFav = favoritesSet.has(placeId);
   if (wasFav) favoritesSet.delete(placeId); else favoritesSet.add(placeId);
   updateFavoritesBadge(); applyFilters(); renderUnifiedList();
   try {
@@ -552,7 +545,7 @@ async function toggleFavorite(placeId) {
 }
 function subscribeFavorites() {
   if (!currentUser) return;
-  var favCol = collection(db, 'users', currentUser.uid, 'favorites');
+  const favCol = collection(db, 'users', currentUser.uid, 'favorites');
   if (unsubFavorites) unsubFavorites();
   unsubFavorites = onSnapshot(favCol, async function(snap){
     favoritesSet.clear();
@@ -563,18 +556,18 @@ function subscribeFavorites() {
 
 // Favorites (OSM)
 function refreshOpenOSMPopupsFavoritesUI() {
-  var list = document.querySelectorAll('.leaflet-popup .osm-fav');
-  for (var i=0;i<list.length;i++) {
-    var btn = list[i];
-    var id = btn.dataset.id;
+  const list = document.querySelectorAll('.leaflet-popup .osm-fav');
+  for (let i=0;i<list.length;i++) {
+    const btn = list[i];
+    const id = btn.dataset.id;
     if (!id) continue;
     btn.textContent = favoritesOsmSet.has(id) ? '★ Убрать из избранного' : '☆ В избранное';
   }
 }
 async function toggleFavoriteOSM(osmId, data) {
   if (!currentUser) { alert('Войдите, чтобы использовать избранное'); return; }
-  var favRef = doc(db, 'users', currentUser.uid, 'favorites_osm', osmId);
-  var wasFav = favoritesOsmSet.has(osmId);
+  const favRef = doc(db, 'users', currentUser.uid, 'favorites_osm', osmId);
+  const wasFav = favoritesOsmSet.has(osmId);
   if (wasFav) favoritesOsmSet.delete(osmId); else favoritesOsmSet.add(osmId);
   updateFavoritesBadge(); applyFiltersOSM(); renderUnifiedList();
   try {
@@ -591,7 +584,7 @@ async function toggleFavoriteOSM(osmId, data) {
 }
 function subscribeFavoritesOSM() {
   if (!currentUser) return;
-  var favCol = collection(db, 'users', currentUser.uid, 'favorites_osm');
+  const favCol = collection(db, 'users', currentUser.uid, 'favorites_osm');
   if (unsubFavoritesOSM) unsubFavoritesOSM();
   unsubFavoritesOSM = onSnapshot(favCol, function(snap){
     favoritesOsmSet.clear(); favoritesOsmMap.clear();
@@ -602,15 +595,15 @@ function subscribeFavoritesOSM() {
 
 // Auth
 if (loginBtn) loginBtn.addEventListener('click', async function(){
-  var provider = new GoogleAuthProvider();
+  const provider = new GoogleAuthProvider();
   try { await signInWithPopup(auth, provider); } catch (err) { alert(err.message); }
 });
 if (logoutBtn) logoutBtn.addEventListener('click', function(){ signOut(auth); });
 
 async function loadAdminStatus(uid) {
   try {
-    var conf = await getDoc(doc(db, 'config', 'admins'));
-    var uids = conf.exists() ? (conf.data().uids || []) : [];
+    const conf = await getDoc(doc(db, 'config', 'admins'));
+    const uids = conf.exists() ? (conf.data().uids || []) : [];
     return (uids && uids.includes && uids.includes(uid)) || (FALLBACK_ADMIN_UIDS && FALLBACK_ADMIN_UIDS.includes && FALLBACK_ADMIN_UIDS.includes(uid));
   } catch(e) {
     return (FALLBACK_ADMIN_UIDS && FALLBACK_ADMIN_UIDS.includes && FALLBACK_ADMIN_UIDS.includes(uid));
@@ -660,14 +653,14 @@ function subscribeData() {
   if (unsubMine) unsubMine();
   unsubApproved = null; unsubMine = null;
 
-  var approvedQ = query(collection(db, 'places'), where('status', '==', 'approved'));
+  const approvedQ = query(collection(db, 'places'), where('status', '==', 'approved'));
   unsubApproved = onSnapshot(approvedQ, function(snap){
     snap.docChanges().forEach(function(ch){
       if (ch.type === 'removed') {
-        var m = markersMap.get(ch.doc.id);
+        const m = markersMap.get(ch.doc.id);
         if (m) { placesLayer.removeLayer(m); markersMap.delete(ch.doc.id); }
       } else {
-        var d = Object.assign({ id: ch.doc.id }, ch.doc.data());
+        const d = Object.assign({ id: ch.doc.id }, ch.doc.data());
         upsertMarker(d);
       }
     });
@@ -675,13 +668,13 @@ function subscribeData() {
   });
 
   if (currentUser) {
-    var mineQ = query(collection(db, 'places'), where('createdBy', '==', currentUser.uid));
+    const mineQ = query(collection(db, 'places'), where('createdBy', '==', currentUser.uid));
     unsubMine = onSnapshot(mineQ, function(snap){
       snap.docChanges().forEach(function(ch){
-        var d = Object.assign({ id: ch.doc.id }, ch.doc.data());
+        const d = Object.assign({ id: ch.doc.id }, ch.doc.data());
         if (d.status !== 'approved') {
           if (ch.type === 'removed') {
-            var m = markersMap.get(d.id);
+            const m = markersMap.get(d.id);
             if (m) { placesLayer.removeLayer(m); markersMap.delete(d.id); }
           } else {
             upsertMarker(d);
@@ -715,13 +708,13 @@ if (cancelAdd) cancelAdd.addEventListener('click', closeAddModal);
 if (addPlaceForm) addPlaceForm.addEventListener('submit', async function(e){
   e.preventDefault();
   if (!currentUser) { alert('Войдите'); return; }
-  var name = (placeName && placeName.value ? placeName.value : '').trim();
-  var description = (placeDescription && placeDescription.value ? placeDescription.value : '').trim();
-  var security = placeSecurity ? placeSecurity.value : '';
-  var access = placeAccess ? placeAccess.value : '';
-  var loot = parseLoot(placeLoot ? placeLoot.value : '');
-  var lat = placeLat ? parseFloat(placeLat.value) : NaN;
-  var lng = placeLng ? parseFloat(placeLng.value) : NaN;
+  const name = (placeName && placeName.value ? placeName.value : '').trim();
+  const description = (placeDescription && placeDescription.value ? placeDescription.value : '').trim();
+  const security = placeSecurity ? placeSecurity.value : '';
+  const access = placeAccess ? placeAccess.value : '';
+  const loot = parseLoot(placeLoot ? placeLoot.value : '');
+  const lat = placeLat ? parseFloat(placeLat.value) : NaN;
+  const lng = placeLng ? parseFloat(placeLng.value) : NaN;
   if (!name || isNaN(lat) || isNaN(lng)) {
     if (addStatus) addStatus.textContent = 'Проверьте название и координаты';
     return;
@@ -760,8 +753,8 @@ if (searchInput) searchInput.addEventListener('input', scheduleApplyAll);
 function startRoutingTo(targetLatLng) {
   if (!navigator.geolocation) { alert('Геолокация недоступна'); return; }
   navigator.geolocation.getCurrentPosition(function(pos){
-    var start = L.latLng(pos.coords.latitude, pos.coords.longitude);
-    var end = L.latLng(targetLatLng[0], targetLatLng[1]);
+    const start = L.latLng(pos.coords.latitude, pos.coords.longitude);
+    const end = L.latLng(targetLatLng[0], targetLatLng[1]);
     if (routingControl) map.removeControl(routingControl);
     routingControl = L.Routing.control({
       waypoints: [start, end],
@@ -791,8 +784,8 @@ function humanOsmStatus(status) {
 async function setOsmModeration(osmId, status, note, meta) {
   if (!currentUser || !isAdmin) { alert('Недостаточно прав для модерации OSM'); return; }
   try {
-    var ref = doc(db, 'osm_moderation', osmId);
-    var payload = {
+    const ref = doc(db, 'osm_moderation', osmId);
+    const payload = {
       status: status,
       updatedAt: serverTimestamp(),
       updatedBy: currentUser.uid,
@@ -806,7 +799,7 @@ async function setOsmModeration(osmId, status, note, meta) {
       if (meta.baseName) payload.baseName = meta.baseName; else if (meta.name) payload.baseName = meta.name;
       if (meta.tags) payload.tagsSnapshot = meta.tags;
     }
-    var prev = osmModerationMap.get(osmId) || {};
+    const prev = osmModerationMap.get(osmId) || {};
     osmModerationMap.set(osmId, Object.assign({}, prev, payload));
     applyFiltersOSM(); renderUnifiedList();
     await setDoc(ref, payload, { merge: true });
@@ -817,14 +810,14 @@ async function setOsmModeration(osmId, status, note, meta) {
 async function saveOsmOverrides(osmId, overrides) {
   if (!currentUser || !isAdmin) { alert('Недостаточно прав для сохранения правок'); return; }
   try {
-    var ref = doc(db, 'osm_moderation', osmId);
-    var payload = {
+    const ref = doc(db, 'osm_moderation', osmId);
+    const payload = {
       overrides: overrides,
       updatedAt: serverTimestamp(),
       updatedBy: currentUser.uid,
       updatedByName: currentUser.displayName || ''
     };
-    var prev = osmModerationMap.get(osmId) || {};
+    const prev = osmModerationMap.get(osmId) || {};
     osmModerationMap.set(osmId, Object.assign({}, prev, payload));
     applyFiltersOSM(); renderUnifiedList();
     await setDoc(ref, payload, { merge: true });
@@ -848,36 +841,36 @@ async function submitOsmReport(osmId, type, data) {
 
 // Overpass helpers
 function parseOsmId(osmId) {
-  var parts = (osmId || '').split('-');
-  var type = parts[0], idStr = parts[1];
-  var id = Number(idStr);
+  const parts = (osmId || '').split('-');
+  const type = parts[0], idStr = parts[1];
+  const id = Number(idStr);
   if (['node','way'].indexOf(type) === -1 || !isFinite(id)) return null;
   return { type: type, id: id };
 }
 async function fetchOsmById(osmId) {
-  var p = parseOsmId(osmId);
+  const p = parseOsmId(osmId);
   if (!p) return null;
-  var queryStr = '[out:json][timeout:25];'+p.type+'('+p.id+');out center tags;';
-  var res = await fetch('https://overpass-api.de/api/interpreter', {
+  const queryStr = '[out:json][timeout:25];'+p.type+'('+p.id+');out center tags;';
+  const res = await fetch('https://overpass-api.de/api/interpreter', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
     body: new URLSearchParams({ data: queryStr })
   });
-  var data = await res.json();
-  var el = (data.elements || [])[0];
+  const data = await res.json();
+  const el = (data.elements || [])[0];
   if (!el) return null;
-  var lat = (typeof el.lat === 'number') ? el.lat : (el.center ? el.center.lat : undefined);
-  var lng = (typeof el.lon === 'number') ? el.lon : (el.center ? el.center.lon : undefined);
+  const lat = (typeof el.lat === 'number') ? el.lat : (el.center ? el.center.lat : undefined);
+  const lng = (typeof el.lon === 'number') ? el.lon : (el.center ? el.center.lon : undefined);
   if (typeof lat !== 'number' || typeof lng !== 'number') return null;
-  var name = (el.tags && (el.tags.name || el.tags['name:ru'])) || 'OSM: объект без имени';
-  var tags = el.tags || {};
+  const name = (el.tags && (el.tags.name || el.tags['name:ru'])) || 'OSM: объект без имени';
+  const tags = el.tags || {};
   return { lat: lat, lng: lng, name: name, type: p.type, tags: tags };
 }
 async function hydrateVerifiedFromOverpass(osmId) {
   if (verifiedHydrateInFlight.has(osmId)) return;
   verifiedHydrateInFlight.add(osmId);
   try {
-    var el = await fetchOsmById(osmId);
+    const el = await fetchOsmById(osmId);
     if (el) {
       if (isAdmin && currentUser) {
         await setDoc(doc(db, 'osm_moderation', osmId), {
@@ -894,12 +887,12 @@ async function hydrateVerifiedFromOverpass(osmId) {
   }
 }
 async function ensureVerifiedMarkerFromDoc(osmId, d) {
-  var lat = d && d.lat, lng = d && d.lng, type = d && d.type, baseName = d && d.baseName, tags = d && d.tagsSnapshot;
+  let lat = d && d.lat, lng = d && d.lng, type = d && d.type, baseName = d && d.baseName, tags = d && d.tagsSnapshot;
 
   if (!(typeof lat === 'number' && typeof lng === 'number')) {
-    var mdyn = osmMarkersMap.get(osmId);
+    const mdyn = osmMarkersMap.get(osmId);
     if (mdyn && mdyn._osmData) {
-      var x = mdyn._osmData;
+      const x = mdyn._osmData;
       lat = x.lat; lng = x.lng; type = x.type; baseName = x.baseName; tags = x.tags;
       if (isAdmin && currentUser) {
         await setDoc(doc(db, 'osm_moderation', osmId), { lat: lat, lng: lng, type: type, baseName: baseName, tagsSnapshot: tags }, { merge: true });
@@ -910,7 +903,7 @@ async function ensureVerifiedMarkerFromDoc(osmId, d) {
     }
   }
 
-  var markerData = {
+  const markerData = {
     osmId: osmId,
     baseName: baseName || (d && d.overrides && d.overrides.name) || 'OSM: объект без имени',
     lat: lat, lng: lng,
@@ -918,7 +911,7 @@ async function ensureVerifiedMarkerFromDoc(osmId, d) {
     tags: tags || {}
   };
 
-  var marker = osmVerifiedMarkersMap.get(osmId);
+  let marker = osmVerifiedMarkersMap.get(osmId);
   if (!marker) {
     marker = L.marker([lat, lng], { icon: makeDivIcon(getOsmStatusColor(d && d.status)) }).addTo(osmVerifiedLayer);
     osmVerifiedMarkersMap.set(osmId, marker);
@@ -930,20 +923,20 @@ async function ensureVerifiedMarkerFromDoc(osmId, d) {
   renderOsmPopup(marker);
 }
 function removeVerifiedMarker(osmId) {
-  var m = osmVerifiedMarkersMap.get(osmId);
+  const m = osmVerifiedMarkersMap.get(osmId);
   if (m) { osmVerifiedLayer.removeLayer(m); osmVerifiedMarkersMap.delete(osmId); }
 }
 function subscribeOsmModeration() {
   if (unsubOsmModeration) unsubOsmModeration();
-  var col = collection(db, 'osm_moderation');
+  const col = collection(db, 'osm_moderation');
   unsubOsmModeration = onSnapshot(col, function(snap){
     snap.docChanges().forEach(function(ch){
-      var id = ch.doc.id;
+      const id = ch.doc.id;
       if (ch.type === 'removed') {
         osmModerationMap.delete(id);
         removeVerifiedMarker(id);
       } else {
-        var data = ch.doc.data();
+        const data = ch.doc.data();
         osmModerationMap.set(id, data);
         if (data.status === 'verified') ensureVerifiedMarkerFromDoc(id, data);
         else removeVerifiedMarker(id);
@@ -956,16 +949,16 @@ subscribeOsmModeration();
 
 // OSM popup
 function renderOsmPopup(marker) {
-  var d = marker._osmData;
-  var mod = osmModerationMap.get(d.osmId) || {};
-  var ov = mod.overrides || {};
-  var displayName = ov.name || d.baseName || 'OSM: объект без имени';
-  var favTxt = favoritesOsmSet.has(d.osmId) ? '★ Убрать из избранного' : '☆ В избранное';
-  var tagsHtml = Object.keys(d.tags || {}).map(function(k){ return k+'='+(d.tags[k]); }).slice(0,12).join('<br/>');
-  var statusText = humanOsmStatus(mod.status);
-  var color = getOsmStatusColor(mod.status);
+  const d = marker._osmData;
+  const mod = osmModerationMap.get(d.osmId) || {};
+  const ov = mod.overrides || {};
+  const displayName = ov.name || d.baseName || 'OSM: объект без имени';
+  const favTxt = favoritesOsmSet.has(d.osmId) ? '★ Убрать из избранного' : '☆ В избранное';
+  const tagsHtml = Object.keys(d.tags || {}).map(function(k){ return k+'='+(d.tags[k]); }).slice(0,12).join('<br/>');
+  const statusText = humanOsmStatus(mod.status);
+  const color = getOsmStatusColor(mod.status);
 
-  var adminControls = isAdmin ? (
+  const adminControls = isAdmin ? (
     '<div class="osm-mod-controls" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'+
       '<span>Статус: <b class="osm-mod-status">'+statusText+'</b></span>'+
       '<button type="button" class="osm-mod-verify">✅ Подтвердить</button>'+
@@ -975,13 +968,13 @@ function renderOsmPopup(marker) {
     '</div>'
   ) : '';
 
-  var reportControls =
+  const reportControls =
     '<div class="osm-report-controls" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'+
       '<button type="button" class="osm-report-flag">⚑ Пометить (спорно)</button>'+
       '<button type="button" class="osm-report-note">✎ Заметка</button>'+
     '</div>';
 
-  var editBox =
+  const editBox =
     '<details style="margin-top:6px">'+
       '<summary>'+(isAdmin ? 'Изменить данные (модерация)' : 'Предложить правки')+'</summary>'+
       '<div style="margin-top:6px;display:flex;flex-direction:column;gap:6px">'+
@@ -1010,10 +1003,10 @@ function renderOsmPopup(marker) {
       '</div>'+
     '</details>';
 
-  var overridesMeta = (ov.name || ov.access || ov.security || (ov.loot && ov.loot.length))
+  const overridesMeta = (ov.name || ov.access || ov.security || (ov.loot && ov.loot.length))
     ? '<div class="muted" style="margin-top:4px">Применены правки модерации</div>' : '';
 
-  var html = ''+
+  const html = ''+
     '<b class="osm-title">'+displayName+'</b><br/>'+
     '<small>из OSM/Overpass • <span class="osm-mod-status">'+statusText+'</span></small><br/>'+
     '<div style="max-width:240px">'+tagsHtml+'</div>'+
@@ -1032,20 +1025,20 @@ function renderOsmPopup(marker) {
 
 // Unified list (our + OSM)
 function itemMatchesFilters(item) {
-  var q = (searchInput && searchInput.value ? searchInput.value : '').toLowerCase();
-  var bySearch = !q || (item.searchText || '').indexOf(q) !== -1;
-  var byAccess = !filterAccess || !filterAccess.value || (item.access && item.access === filterAccess.value);
-  var bySec = !filterSecurity || !filterSecurity.value || (item.security && item.security === filterSecurity.value);
-  var byFav = !onlyFavorites || !onlyFavorites.checked || ((item.kind === 'place' && favoritesSet.has(item.id)) || (item.kind === 'osm' && favoritesOsmSet.has(item.id)));
+  const q = (searchInput && searchInput.value ? searchInput.value : '').toLowerCase();
+  const bySearch = !q || (item.searchText || '').indexOf(q) !== -1;
+  const byAccess = !filterAccess || !filterAccess.value || (item.access && item.access === filterAccess.value);
+  const bySec = !filterSecurity || !filterSecurity.value || (item.security && item.security === filterSecurity.value);
+  const byFav = !onlyFavorites || !onlyFavorites.checked || ((item.kind === 'place' && favoritesSet.has(item.id)) || (item.kind === 'osm' && favoritesOsmSet.has(item.id)));
   return bySearch && byAccess && bySec && byFav;
 }
 function collectListItems() {
-  var items = [];
+  const items = [];
 
   // Наши
   markersMap.forEach(function(m){
-    var p = m._placeData; if (!p) return;
-    var it = {
+    const p = m._placeData; if (!p) return;
+    const it = {
       kind: 'place', id: p.id, name: p.name || '',
       access: p.access || '', security: p.security || '',
       loot: Array.isArray(p.loot) ? p.loot : [],
@@ -1058,11 +1051,11 @@ function collectListItems() {
 
   // Verified OSM — всегда; hidden показываем только админам
   osmVerifiedMarkersMap.forEach(function(m, osmId){
-    var d = m._osmData;
-    var mod = osmModerationMap.get(osmId) || {};
+    const d = m._osmData;
+    const mod = osmModerationMap.get(osmId) || {};
     if (mod.status === 'hidden' && !isAdmin) return;
-    var ov = mod.overrides || {};
-    var it = {
+    const ov = mod.overrides || {};
+    const it = {
       kind: 'osm', id: osmId, name: ov.name || d.baseName || 'OSM: объект без имени',
       access: ov.access || '', security: ov.security || '',
       loot: Array.isArray(ov.loot) ? ov.loot : [],
@@ -1077,11 +1070,11 @@ function collectListItems() {
   if (toggleOSM && toggleOSM.checked) {
     osmMarkersMap.forEach(function(m, osmId){
       if (osmVerifiedMarkersMap.has(osmId)) return;
-      var d = m._osmData;
-      var mod = osmModerationMap.get(osmId) || {};
+      const d = m._osmData;
+      const mod = osmModerationMap.get(osmId) || {};
       if (mod.status === 'hidden' && !isAdmin) return;
-      var ov = mod.overrides || {};
-      var it = {
+      const ov = mod.overrides || {};
+      const it = {
         kind: 'osm', id: osmId, name: ov.name || d.baseName || 'OSM: объект без имени',
         access: ov.access || '', security: ov.security || '',
         loot: Array.isArray(ov.loot) ? ov.loot : [],
@@ -1099,16 +1092,16 @@ function collectListItems() {
   return items;
 }
 function renderOsmListItem(item) {
-  var el = document.createElement('div');
+  const el = document.createElement('div');
   el.className = 'place-item';
   el.dataset.id = item.id;
 
-  var statusBadge = (item.status === 'verified') ? '<span class="badge approved">OSM • подтверждён</span>' :
-                    (item.status === 'flagged')  ? '<span class="badge pending">OSM • помечен</span>' :
-                    (item.status === 'hidden')   ? '<span class="badge rejected">OSM • скрыт</span>' :
-                                                   '<span class="badge">OSM</span>';
-  var lootText = (item.loot && item.loot.length) ? ' • лут: ' + item.loot.join(', ') : '';
-  var meta = (item.access || '—') + ' • охрана: ' + (item.security || '—') + lootText;
+  const statusBadge = (item.status === 'verified') ? '<span class="badge approved">OSM • подтверждён</span>' :
+                      (item.status === 'flagged')  ? '<span class="badge pending">OSM • помечен</span>' :
+                      (item.status === 'hidden')   ? '<span class="badge rejected">OSM • скрыт</span>' :
+                                                     '<span class="badge">OSM</span>';
+  const lootText = (item.loot && item.loot.length) ? ' • лут: ' + item.loot.join(', ') : '';
+  const meta = (item.access || '—') + ' • охрана: ' + (item.security || '—') + lootText;
 
   el.innerHTML = ''+
     '<h4>'+item.name+' '+statusBadge+'</h4>'+
@@ -1123,33 +1116,33 @@ function renderOsmListItem(item) {
 
   if (item.status === 'hidden' && isAdmin) el.style.opacity = '0.6';
 
-  var b;
+  let b;
   b = el.querySelector('[data-action="show"]'); if (b) b.addEventListener('click', function(){ showOsmOnMap(item); });
   b = el.querySelector('[data-action="route"]'); if (b) b.addEventListener('click', function(){ startRoutingTo([item.lat, item.lng]); });
   b = el.querySelector('[data-action="favorite"]'); if (b) b.addEventListener('click', function(){ toggleFavoriteOSM(item.id, { name: item.name, lat: item.lat, lng: item.lng, type: 'node', tags: {} }); });
   b = el.querySelector('[data-action="flag"]'); if (b) b.addEventListener('click', async function(){
     if (!currentUser) { alert('Войдите, чтобы отправлять жалобы'); return; }
-    var reason = prompt('Почему объект спорный? (необязательно)') || '';
+    const reason = prompt('Почему объект спорный? (необязательно)') || '';
     await submitOsmReport(item.id, 'flag', { reason: reason });
   });
   b = el.querySelector('[data-action="note"]'); if (b) b.addEventListener('click', async function(){
     if (!currentUser) { alert('Войдите, чтобы отправлять заметки'); return; }
-    var note = prompt('Заметка (увидит модератор):', '') || '';
+    const note = prompt('Заметка (увидит модератор):', '') || '';
     if (note.trim()) await submitOsmReport(item.id, 'note', { note: note });
   });
 
   return el;
 }
 function showOsmOnMap(item) {
-  var mv = osmVerifiedMarkersMap.get(item.id);
+  const mv = osmVerifiedMarkersMap.get(item.id);
   if (mv) { map.setView([item.lat, item.lng], 16); mv.openPopup(); return; }
-  var mdyn = osmMarkersMap.get(item.id);
+  const mdyn = osmMarkersMap.get(item.id);
   if (mdyn) {
     if (toggleOSM && !toggleOSM.checked) { toggleOSM.checked = true; toggleOSM.dispatchEvent(new Event('change')); }
     map.setView([item.lat, item.lng], 16); mdyn.openPopup(); return;
   }
   map.setView([item.lat, item.lng], 16);
-  var temp = L.marker([item.lat, item.lng], { icon: makeDivIcon('#4ea0ff') })
+  const temp = L.marker([item.lat, item.lng], { icon: makeDivIcon('#4ea0ff') })
     .bindPopup('<b>'+item.name+'</b><br/><small>OSM объект</small>')
     .addTo(osmVerifiedLayer)
     .openPopup();
@@ -1158,11 +1151,11 @@ function showOsmOnMap(item) {
 function renderUnifiedList() {
   if (!placesList) return;
   placesList.innerHTML = '';
-  var items = collectListItems();
-  var frag = document.createDocumentFragment();
+  const items = collectListItems();
+  const frag = document.createDocumentFragment();
   items.forEach(function(item){
     if (item.kind === 'place') {
-      var m = markersMap.get(item.id); var p = m && m._placeData;
+      const m = markersMap.get(item.id); const p = m && m._placeData;
       if (p) frag.appendChild(renderPlaceItem(p));
     } else {
       frag.appendChild(renderOsmListItem(item));
@@ -1173,53 +1166,53 @@ function renderUnifiedList() {
 
 // Apply filters to OSM
 function applyFiltersOSM() {
-  var q = (searchInput && searchInput.value ? searchInput.value : '').toLowerCase();
+  const q = (searchInput && searchInput.value ? searchInput.value : '').toLowerCase();
 
   // verified — всегда; hidden видит только админ
   osmVerifiedMarkersMap.forEach(function(marker, osmId){
-    var d = marker._osmData;
-    var mod = osmModerationMap.get(osmId) || {};
-    var ov = mod.overrides || {};
-    var name = ov.name || d.baseName || '';
-    var matchesSearch = !q || name.toLowerCase().indexOf(q) !== -1;
-    var matchesFav = !onlyFavorites || !onlyFavorites.checked || favoritesOsmSet.has(osmId);
-    var visibleByStatus = isAdmin || mod.status !== 'hidden';
-    var visible = matchesSearch && matchesFav && visibleByStatus;
+    const d = marker._osmData;
+    const mod = osmModerationMap.get(osmId) || {};
+    const ov = mod.overrides || {};
+    const name = ov.name || d.baseName || '';
+    const matchesSearch = !q || name.toLowerCase().indexOf(q) !== -1;
+    const matchesFav = !onlyFavorites || !onlyFavorites.checked || favoritesOsmSet.has(osmId);
+    const visibleByStatus = isAdmin || mod.status !== 'hidden';
+    const visible = matchesSearch && matchesFav && visibleByStatus;
 
     marker.setIcon(makeDivIcon(getOsmStatusColor(mod.status)));
-    if (visible) { if (!osmVerifiedLayer.hasLayer(marker)) marker.addTo(osmVerifiedLayer); var el = marker.getElement(); if (el) el.classList.remove('hidden'); }
+    if (visible) { if (!osmVerifiedLayer.hasLayer(marker)) marker.addTo(osmVerifiedLayer); const el = marker.getElement(); if (el) el.classList.remove('hidden'); }
     else { osmVerifiedLayer.removeLayer(marker); }
 
-    var el2 = marker.getPopup() ? marker.getPopup().getElement() : null;
+    const el2 = marker.getPopup() ? marker.getPopup().getElement() : null;
     if (el2) {
-      var st = el2.querySelector('.osm-mod-status'); if (st) st.textContent = humanOsmStatus(mod.status);
-      var title = el2.querySelector('.osm-title'); if (title) title.textContent = name || 'OSM: объект без имени';
-      var hideBtn = el2.querySelector('.osm-mod-hide'); if (hideBtn) hideBtn.textContent = (mod.status === 'hidden') ? 'Показать' : 'Скрыть';
+      const st = el2.querySelector('.osm-mod-status'); if (st) st.textContent = humanOsmStatus(mod.status);
+      const title = el2.querySelector('.osm-title'); if (title) title.textContent = name || 'OSM: объект без имени';
+      const hideBtn = el2.querySelector('.osm-mod-hide'); if (hideBtn) hideBtn.textContent = (mod.status === 'hidden') ? 'Показать' : 'Скрыть';
     }
   });
 
   // dynamic — по тумблеру; hidden only admin
   osmMarkersMap.forEach(function(marker, osmId){
-    var d = marker._osmData;
-    var mod = osmModerationMap.get(osmId) || {};
-    var ov = mod.overrides || {};
-    var name = ov.name || d.baseName || '';
-    var matchesSearch = !q || name.toLowerCase().indexOf(q) !== -1;
-    var matchesFav = !onlyFavorites || !onlyFavorites.checked || favoritesOsmSet.has(osmId);
-    var visibleByStatus = isAdmin || mod.status !== 'hidden';
-    var visible = matchesSearch && matchesFav && visibleByStatus;
+    const d = marker._osmData;
+    const mod = osmModerationMap.get(osmId) || {};
+    const ov = mod.overrides || {};
+    const name = ov.name || d.baseName || '';
+    const matchesSearch = !q || name.toLowerCase().indexOf(q) !== -1;
+    const matchesFav = !onlyFavorites || !onlyFavorites.checked || favoritesOsmSet.has(osmId);
+    const visibleByStatus = isAdmin || mod.status !== 'hidden';
+    const visible = matchesSearch && matchesFav && visibleByStatus;
 
     marker.setIcon(makeDivIcon(getOsmStatusColor(mod.status)));
     if (osmVerifiedMarkersMap.has(osmId)) { marker.remove(); return; }
 
-    if (visible && toggleOSM && toggleOSM.checked) { if (!osmLayer.hasLayer(marker)) marker.addTo(osmLayer); var el = marker.getElement(); if (el) el.classList.remove('hidden'); }
+    if (visible && toggleOSM && toggleOSM.checked) { if (!osmLayer.hasLayer(marker)) marker.addTo(osmLayer); const el = marker.getElement(); if (el) el.classList.remove('hidden'); }
     else { osmLayer.removeLayer(marker); }
 
-    var el3 = marker.getPopup() ? marker.getPopup().getElement() : null;
+    const el3 = marker.getPopup() ? marker.getPopup().getElement() : null;
     if (el3) {
-      var st2 = el3.querySelector('.osm-mod-status'); if (st2) st2.textContent = humanOsmStatus(mod.status);
-      var title2 = el3.querySelector('.osm-title'); if (title2) title2.textContent = name || 'OSM: объект без имени';
-      var hideBtn2 = el3.querySelector('.osm-mod-hide'); if (hideBtn2) hideBtn2.textContent = (mod.status === 'hidden') ? 'Показать' : 'Скрыть';
+      const st2 = el3.querySelector('.osm-mod-status'); if (st2) st2.textContent = humanOsmStatus(mod.status);
+      const title2 = el3.querySelector('.osm-title'); if (title2) title2.textContent = name || 'OSM: объект без имени';
+      const hideBtn2 = el3.querySelector('.osm-mod-hide'); if (hideBtn2) hideBtn2.textContent = (mod.status === 'hidden') ? 'Показать' : 'Скрыть';
     }
   });
 
@@ -1228,16 +1221,16 @@ function applyFiltersOSM() {
 }
 
 // Overpass (by view)
-var osmFetchTimer = null;
+let osmFetchTimer = null;
 function throttleFetchOSM() {
   if (osmFetchTimer) clearTimeout(osmFetchTimer);
   osmFetchTimer = setTimeout(fetchOSMByView, 600);
 }
 async function fetchOSMByView() {
-  var b = map.getBounds();
-  var s = b.getSouth(), w = b.getWest(), n = b.getNorth(), e = b.getEast();
-  var bbox = s+','+w+','+n+','+e;
-  var queryStr =
+  const b = map.getBounds();
+  const s = b.getSouth(), w = b.getWest(), n = b.getNorth(), e = b.getEast();
+  const bbox = s+','+w+','+n+','+e;
+  const queryStr =
     '[out:json][timeout:25];('+
       'node["abandoned"="yes"]('+bbox+');'+
       'way["abandoned"="yes"]('+bbox+');'+
@@ -1249,37 +1242,37 @@ async function fetchOSMByView() {
       'way["historic"="ruins"]('+bbox+');'+
     ');out center 100;';
   try {
-    var res = await fetch('https://overpass-api.de/api/interpreter', {
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
       body: new URLSearchParams({ data: queryStr })
     });
-    var data = await res.json();
+    const data = await res.json();
 
     osmLayer.clearLayers();
     osmMarkersMap.clear();
 
     (data.elements || []).forEach(function(el){
-      var type = el.type;
-      var id = el.id;
-      var osmId = type+'-'+id;
-      var lat = (typeof el.lat === 'number') ? el.lat : (el.center ? el.center.lat : undefined);
-      var lng = (typeof el.lon === 'number') ? el.lon : (el.center ? el.center.lon : undefined);
+      const type = el.type;
+      const id = el.id;
+      const osmId = type+'-'+id;
+      const lat = (typeof el.lat === 'number') ? el.lat : (el.center ? el.center.lat : undefined);
+      const lng = (typeof el.lon === 'number') ? el.lon : (el.center ? el.center.lon : undefined);
       if (typeof lat !== 'number' || typeof lng !== 'number') return;
 
-      var baseName = (el.tags && (el.tags.name || el.tags['name:ru'])) || 'OSM: объект без имени';
-      var tags = el.tags || {};
-      var mod = osmModerationMap.get(osmId);
+      const baseName = (el.tags && (el.tags.name || el.tags['name:ru'])) || 'OSM: объект без имени';
+      const tags = el.tags || {};
+      const mod = osmModerationMap.get(osmId);
       if (mod && mod.status === 'hidden' && !isAdmin) return;
 
       if (osmVerifiedMarkersMap.has(osmId)) {
-        var mv = osmVerifiedMarkersMap.get(osmId);
+        const mv = osmVerifiedMarkersMap.get(osmId);
         mv._osmData = { osmId: osmId, baseName: baseName, lat: lat, lng: lng, type: type, tags: tags };
         renderOsmPopup(mv);
         return;
       }
 
-      var marker = L.marker([lat, lng], { icon: makeDivIcon(getOsmStatusColor(mod && mod.status)) }).addTo(osmLayer);
+      const marker = L.marker([lat, lng], { icon: makeDivIcon(getOsmStatusColor(mod && mod.status)) }).addTo(osmLayer);
       marker._osmData = { osmId: osmId, baseName: baseName, lat: lat, lng: lng, type: type, tags: tags };
       osmMarkersMap.set(osmId, marker);
       renderOsmPopup(marker);
